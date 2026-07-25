@@ -93,6 +93,11 @@ class Controller:
         self._all_online_prev: bool | None = None
 
     # -- IR scenes (LED) — fetched fresh so re-learns are picked up -----------
+    # colour/mode key_names as Tuya learned them (note trailing spaces in some —
+    # already handled by .strip() below)
+    _LED_COLOR_KEYS = {"blue": "led blue colour", "green": "led green colour", "red": "led red colour"}
+    _LED_MODE_KEYS = {"smooth": "led smooth mode", "fade": "led fade mode", "strobe": "led strobe mode"}
+
     def _load_ir_scenes(self):
         if not self.cloud.ready:
             return
@@ -102,6 +107,8 @@ class Controller:
                    for k in self.cloud.ir_learned_keys(ir, remote)}
         self.led.code_on = by_name.get(_SCENE_KEYS[("led", "on")], "")
         self.led.code_off = by_name.get(_SCENE_KEYS[("led", "off")], "")
+        self.led.colors = {name: by_name[key] for name, key in self._LED_COLOR_KEYS.items() if key in by_name}
+        self.led.modes = {name: by_name[key] for name, key in self._LED_MODE_KEYS.items() if key in by_name}
 
     def _persist_desired(self):
         self.db.kv_set(DESIRED_KEY, json.dumps(self.desired))
@@ -113,9 +120,16 @@ class Controller:
         t_c = self.reading[0] if self.reading else self.thr.heater_on_t
         return heater_dial(t_c, self.thr)
 
-    def ir_scene(self, device: str, command: str):
+    def ir_scene(self, device: str, command: str, value: str = ""):
         """Callback used by rules.py's run_actions() for led/projector actions."""
         if device == "led":
+            if command == "color":
+                self.led.set_color(value)
+                self.desired["led_color"] = value
+                return
+            if command == "mode":
+                self.led.set_mode(value)
+                return
             on = command != "off"
             self.led.set(on)
             self.desired["led"] = on
@@ -285,7 +299,8 @@ class Controller:
         # user's conversational rules run AFTER the brain and override per-device
         ctx = {"temp": t_c, "rh": rh, "dew_point": target.dew_point,
                "spread": target.spread, "heat_index": target.heat_index,
-               "hour": datetime.now().hour, "minute": datetime.now().minute}
+               "hour": datetime.now().hour, "minute": datetime.now().minute,
+               "weekday": datetime.now().weekday()}   # 0=Monday ... 6=Sunday
         self.fired_rules = []
         acts = {"fan": self.fan, "heater": self.heater, "ir_scene": self.ir_scene}
         for rule in self.rule_store.rules:
@@ -318,7 +333,8 @@ class Controller:
         r = self.reading or (26, 60)
         ctx = {"temp": r[0], "rh": r[1], "dew_point": dew_point(*r),
                "spread": r[0] - dew_point(*r), "heat_index": heat_index(*r),
-               "hour": datetime.now().hour, "minute": datetime.now().minute}
+               "hour": datetime.now().hour, "minute": datetime.now().minute,
+               "weekday": datetime.now().weekday()}   # 0=Monday ... 6=Sunday
         run_actions(rule.actions, {"fan": self.fan, "heater": self.heater,
                                    "ir_scene": self.ir_scene}, ctx)
         self.db.log_event("rule", f"Manual scene run: {rule.name}")

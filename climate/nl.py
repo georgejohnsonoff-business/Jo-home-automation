@@ -51,15 +51,20 @@ SYSTEM = """You convert a person's plain-English home-automation request into ON
 - spread      : temp - dew_point (evaporative headroom; >9 dry, <5 muggy)
 - heat_index  : "feels like" °C
 - hour, minute: local clock (0-23, 0-59)
+- weekday     : 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
 Helper functions allowed in expressions: tier(heat_index) -> fan speed 1-5, min, max, abs, round.
-Operators: and or not, < <= > >= == !=, + - * / %. Example: `heat_index > 27 and spread > 7`.
+Operators: and or not, < <= > >= == !=, + - * / %. Example: `heat_index > 27 and spread > 7 and weekday <= 3`
+(weekday <= 3 means Mon-Thu; combine with "and" for "on these weekdays only" requests).
 
 ## Devices the APP controls directly (target = "app")
 - fan      : commands set_speed (value "1".."5" or an expression like "tier(heat_index)") | off
 - heater   : on | off        (a space heater)
-- led      : on | off        (LED strip)
+- led      : on | off (LED strip) | color (value: one of "red","green","blue" — only these 3 are
+             learned so far) | mode (value: one of "smooth","fade","strobe")
 - projector: on | off | power
 For app rules: set `when` to the trigger expression, or "manual" for a scene the user runs with a button (movie mode, etc.). Fill `actions`. Leave gh_yaml/gh_summary "".
+If a request needs multiple LED actions (e.g. "on and blue"), include multiple Action entries for
+the led device — one with command "on", another with command "color" and the color name.
 
 ## Devices only GOOGLE HOME can control (target = "google_home")
 - Cooler - Living Room        (evaporative air cooler; on/off)

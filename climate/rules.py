@@ -83,8 +83,8 @@ def safe_eval(expr, ctx: dict):
 @dataclass
 class Action:
     device: str          # fan | heater | led | projector
-    command: str         # set_speed | on | off | power
-    value: str = ""      # for set_speed: an int or expression like "tier(heat_index)"
+    command: str         # set_speed | on | off | power | color | mode
+    value: str = ""      # set_speed: int/expr; color/mode: the name (e.g. "blue")
 
 
 @dataclass
@@ -128,7 +128,7 @@ def run_actions(actions, actuators, ctx):
             elif a.device == "heater":
                 actuators["heater"].set(a.command == "on")
             elif a.device in ("led", "projector"):
-                actuators["ir_scene"](a.device, a.command)   # callback fires the learned code
+                actuators["ir_scene"](a.device, a.command, a.value)   # callback fires the learned code
         except Exception as e:
             log.error("action %s/%s failed: %s", a.device, a.command, e)
 

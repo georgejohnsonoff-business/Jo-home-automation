@@ -200,9 +200,11 @@ class Projector(ToggleIR):
 
 
 class LED:
-    """LED strip has TRUE distinct on/off IR codes (not a toggle) — always
-    safe to resend either command regardless of assumed state. Still tracks
-    `_on` so the rest of the app has one consistent .set(bool) interface."""
+    """LED strip — a 24-key NEC remote; on/off, colors, and modes are all
+    TRUE distinct IR codes (not toggles) — always safe to resend regardless
+    of assumed state. Only a subset of the 24 buttons are learned so far
+    (see config.yaml comment); colors/modes dicts hold whatever IS learned,
+    keyed by name — missing ones just log a warning instead of erroring."""
     def __init__(self, cloud: TuyaCloud, ir_hub_id: str, remote_id: str,
                 code_on: str, code_off: str):
         self.cloud = cloud
@@ -210,7 +212,10 @@ class LED:
         self.remote = remote_id
         self.code_on = code_on
         self.code_off = code_off
+        self.colors: dict[str, str] = {}     # e.g. {"blue": "<code>", "red": ...}
+        self.modes: dict[str, str] = {}       # e.g. {"smooth": "<code>", ...}
         self._on = False
+        self._color: str | None = None
 
     def set(self, on: bool, force: bool = False):
         """force=True always resends — needed after power restore, since the
@@ -222,6 +227,21 @@ class LED:
         if code:
             self.cloud.ir_send_learned(self.ir, self.remote, code)
         self._on = on
+
+    def set_color(self, name: str):
+        code = self.colors.get(name.lower())
+        if not code:
+            log.warning("LED color '%s' not learned yet — skipping.", name)
+            return
+        self.cloud.ir_send_learned(self.ir, self.remote, code)
+        self._color = name.lower()
+
+    def set_mode(self, name: str):
+        code = self.modes.get(name.lower())
+        if not code:
+            log.warning("LED mode '%s' not learned yet — skipping.", name)
+            return
+        self.cloud.ir_send_learned(self.ir, self.remote, code)
 
     def force_state(self, on: bool):
         self._on = on
