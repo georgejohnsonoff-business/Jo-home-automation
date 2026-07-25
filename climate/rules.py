@@ -31,11 +31,12 @@ _CMP = {ast.Lt: operator.lt, ast.LtE: operator.le, ast.Gt: operator.gt,
 
 
 def _fan_tier(hi):
+    # capped at 4 to match brain.fan_tier()'s default — beyond this, rules
+    # should lean on the cooler, not push the fan further
     if hi < 24: return 1
-    if hi < 26: return 2
-    if hi < 28: return 3
-    if hi < 30: return 4
-    return 5
+    if hi < 25.5: return 2
+    if hi < 27: return 3
+    return 4
 
 
 _FUNCS = {"tier": _fan_tier, "min": min, "max": max, "abs": abs, "round": round}

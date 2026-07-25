@@ -63,14 +63,53 @@ def manual_control(
     device: Literal["fan", "heater", "led", "projector"],
     on: Optional[bool] = Body(None),
     speed: Optional[int] = Body(None),
+    delta: Optional[int] = Body(None),
+    color: Optional[str] = Body(None),
 ):
     """Directly set a device from the dashboard. Blocks automation for this
     device for `manual_override_minutes` (config.yaml), then automation
     resumes regardless of mode."""
-    ok = controller.set_manual(device, on=on, speed=speed)
+    ok = controller.set_manual(device, on=on, speed=speed, delta=delta, color=color)
     if not ok:
         return JSONResponse({"ok": False}, status_code=400)
+    controller.tick()   # act on this immediately, don't wait for the next poll cycle
     return {"ok": True, "state": controller.snapshot()["devices"][device]}
+
+
+@app.post("/api/confirm/{device}")
+def confirm_state(
+    device: Literal["fan", "heater", "led", "projector"],
+    on: bool = Body(..., embed=True),
+):
+    """User reports the REAL, physically-observed state. Corrects our tracked
+    belief only — sends no command itself. Use when you've looked at the
+    device and it doesn't match what the dashboard shows (IR toggles have no
+    feedback channel and can drift after cross-talk, a missed pulse, or a
+    restart). Immediately ticks afterward so if the corrected belief now
+    disagrees with what automation currently wants, the real corrective
+    command fires right away instead of waiting for the next poll."""
+    ok = controller.confirm_state(device, on)
+    if not ok:
+        return JSONResponse({"ok": False}, status_code=400)
+    controller.tick()
+    return {"ok": True, "state": controller.snapshot()["devices"][device]}
+
+
+# --- thermostat override -----------------------------------------------------
+@app.post("/api/thermostat")
+def set_thermostat(target: float = Body(...), hours: float = Body(6.0)):
+    """Set a single target temp — fan/heater work toward it instead of the
+    normal comfort-band thresholds, for `hours` (default 6), then reverts
+    automatically."""
+    controller.set_thermostat(target, hours)
+    controller.tick()   # apply the new target immediately
+    return {"ok": True, "thermostat": controller.snapshot()["thermostat"]}
+
+
+@app.delete("/api/thermostat")
+def clear_thermostat():
+    controller.clear_thermostat()
+    return {"ok": True}
 
 
 # --- conversational automations --------------------------------------------

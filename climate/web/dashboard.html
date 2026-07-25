@@ -3,102 +3,187 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0e1418">
-<title>Climate Brain</title>
+<meta name="theme-color" content="#f8f9fa">
+<title>JO's Home Automation</title>
 <style>
-  :root{--bg:#0e1418;--panel:#151d23;--ink:#e8edf0;--muted:#8a97a2;--hair:#26323a;
-    --cool:#38bdf8;--coolbg:#0f2733;--heat:#f5a524;--heatbg:#2c220f;--comf:#3fbfa0;--comfbg:#0f2a25;
-    --warn:#f59e6b;--warnbg:#2c1a10;--gh:#c98bdb;--ghbg:#241528;--track:#26323a;--manual:#f5c542;}
+  :root{
+    --bg:#f8f9fa; --panel:#ffffff; --ink:#1f1f1f; --ink-2:#444746; --muted:#5f6368; --hair:#e3e5e8;
+    --cool:#1a73e8; --coolbg:#e8f0fe; --heat:#b06000; --heatbg:#fef7e0; --comf:#0d652d; --comfbg:#e6f4ea;
+    --warn:#c5221f; --warnbg:#fce8e6; --gh:#8430ce; --ghbg:#f3e8fd; --track:#e3e5e8; --manual:#b06000;
+    --shadow:0 1px 2px rgba(60,64,67,.08),0 1px 3px rgba(60,64,67,.06);
+    --radius-lg:20px; --radius-md:16px; --radius-sm:10px;
+    --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px; --sp-6:24px; --sp-8:32px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#131314; --panel:#1e1f20; --ink:#e3e3e3; --ink-2:#c4c7c5; --muted:#9aa0a6; --hair:#2d2f31;
+      --cool:#a8c7fa; --coolbg:#26354f; --heat:#fdd663; --heatbg:#3d2e12; --comf:#8dcea0; --comfbg:#1e3324;
+      --warn:#f2b8b5; --warnbg:#3c2321; --gh:#d5b3f7; --ghbg:#2f2138; --track:#3c3f41; --manual:#fdd663;
+      --shadow:0 1px 2px rgba(0,0,0,.35),0 1px 3px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#f8f9fa; --panel:#ffffff; --ink:#1f1f1f; --ink-2:#444746; --muted:#5f6368; --hair:#e3e5e8;
+    --cool:#1a73e8; --coolbg:#e8f0fe; --heat:#b06000; --heatbg:#fef7e0; --comf:#0d652d; --comfbg:#e6f4ea;
+    --warn:#c5221f; --warnbg:#fce8e6; --gh:#8430ce; --ghbg:#f3e8fd; --track:#e3e5e8; --manual:#b06000;
+  }
+  :root[data-theme="dark"]{
+    --bg:#131314; --panel:#1e1f20; --ink:#e3e3e3; --ink-2:#c4c7c5; --muted:#9aa0a6; --hair:#2d2f31;
+    --cool:#a8c7fa; --coolbg:#26354f; --heat:#fdd663; --heatbg:#3d2e12; --comf:#8dcea0; --comfbg:#1e3324;
+    --warn:#f2b8b5; --warnbg:#3c2321; --gh:#d5b3f7; --ghbg:#2f2138; --track:#3c3f41; --manual:#fdd663;
+  }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
-  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
-  .wrap{max-width:760px;margin:0 auto;padding:22px 16px 48px}
-  .top{display:flex;justify-content:space-between;align-items:center}
-  .eyebrow{font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--cool)}
-  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
-  h1{font-size:24px;margin:2px 0 16px;letter-spacing:-.02em}
-  h2{font-size:13px;font-family:ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:30px 0 12px;font-weight:600}
-  .mode{border-radius:14px;padding:16px 18px;border:1px solid var(--hair);margin-bottom:12px;transition:.25s}
-  .mode .ml{font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;opacity:.8}
-  .mode .mn{font-size:26px;font-weight:770;letter-spacing:-.02em;margin:3px 0 5px}
-  .mode .mr{font-size:13px;line-height:1.5}
-  .m-cool{background:var(--coolbg);border-color:color-mix(in srgb,var(--cool) 35%,var(--hair))} .m-cool .mn{color:var(--cool)}
-  .m-heat{background:var(--heatbg);border-color:color-mix(in srgb,var(--heat) 35%,var(--hair))} .m-heat .mn{color:var(--heat)}
-  .m-comf{background:var(--comfbg);border-color:color-mix(in srgb,var(--comf) 35%,var(--hair))} .m-comf .mn{color:var(--comf)}
-  .m-warn{background:var(--warnbg);border-color:color-mix(in srgb,var(--warn) 40%,var(--hair))} .m-warn .mn{color:var(--warn)}
-  .reads{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
-  .read{background:var(--panel);border:1px solid var(--hair);border-radius:11px;padding:11px}
-  .read .k{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-  .read .v{font-family:ui-monospace,monospace;font-size:21px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
-  .read .t{font-size:11px;color:var(--muted);margin-top:2px}
-  .dev{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-  @media(min-width:600px){.dev{grid-template-columns:repeat(3,1fr)}}
-  .tile{background:var(--panel);border:1px solid var(--hair);border-radius:11px;padding:12px;position:relative}
-  .tile .tn{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-  .tile .ts{font-size:18px;font-weight:720;margin-top:5px}
-  .tile.on-cool{border-color:var(--cool);box-shadow:0 0 0 1px var(--cool)} .tile.on-cool .ts{color:var(--cool)}
-  .tile.on-heat{border-color:var(--heat);box-shadow:0 0 0 1px var(--heat)} .tile.on-heat .ts{color:var(--heat)}
-  .tile.on-comf{border-color:var(--comf);box-shadow:0 0 0 1px var(--comf)} .tile.on-comf .ts{color:var(--comf)}
-  .tile.off .ts{color:var(--muted);opacity:.55}
-  .tile.manual{border-color:var(--manual);box-shadow:0 0 0 1px var(--manual)}
-  .manual-badge{position:absolute;top:9px;right:10px;font-family:ui-monospace,monospace;font-size:9px;
-    color:var(--manual);letter-spacing:.05em}
-  .bars{display:flex;gap:3px;margin-top:8px}.bars span{flex:1;height:15px;border-radius:2px;background:var(--track)}.bars span.lit{background:var(--comf)}
-  .ctl{display:flex;gap:4px;margin-top:9px;flex-wrap:wrap}
-  .ctl button{flex:1;min-width:28px;padding:5px 0;font-size:12px}
-  .ctl button.active{background:var(--comf);border-color:var(--comf);color:#06231b;font-weight:700}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Google Sans",Roboto,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;
+    letter-spacing:0}
+  .icon{width:20px;height:20px;flex:none;display:block}
+  .wrap{max-width:720px;margin:0 auto;padding:28px 20px 56px}
 
-  /* automations */
-  .chat{background:var(--panel);border:1px solid var(--hair);border-radius:13px;padding:14px}
-  .chat textarea{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--hair);border-radius:9px;
-    padding:11px 12px;font:inherit;font-size:14px;resize:vertical;min-height:44px;outline:none}
-  .chat textarea:focus{border-color:var(--cool)}
-  .row{display:flex;gap:8px;align-items:center;margin-top:9px}
-  .hint{font-size:12px;color:var(--muted);flex:1}
-  button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--hair);background:var(--panel);color:var(--ink);padding:7px 13px;font-size:13px}
-  button.primary{background:var(--cool);border-color:var(--cool);color:#06222f;font-weight:650}
+  /* header */
+  .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px}
+  .brand{font-size:19px;font-weight:500;color:var(--ink);letter-spacing:-.01em}
+  .status{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--comf);flex:none}
+
+  h2{font-size:13px;font-weight:500;color:var(--muted);margin:var(--sp-8) 0 var(--sp-3);letter-spacing:.01em}
+
+  /* mode card */
+  .mode{border-radius:var(--radius-lg);padding:var(--sp-6);margin-bottom:var(--sp-3);background:var(--panel);box-shadow:var(--shadow)}
+  .mode .ml{font-size:12.5px;font-weight:500;color:var(--muted)}
+  .mode .mn{font-size:30px;font-weight:500;letter-spacing:-.01em;margin:var(--sp-1) 0 var(--sp-2)}
+  .mode .mr{font-size:14px;line-height:1.5;color:var(--ink-2)}
+  .m-cool{background:var(--coolbg)} .m-cool .mn{color:var(--cool)}
+  .m-heat{background:var(--heatbg)} .m-heat .mn{color:var(--heat)}
+  .m-comf{background:var(--comfbg)} .m-comf .mn{color:var(--comf)}
+  .m-warn{background:var(--warnbg)} .m-warn .mn{color:var(--warn)}
+
+  /* reads */
+  .reads{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3);margin-bottom:var(--sp-3)}
+  .read{background:var(--panel);border-radius:var(--radius-md);padding:var(--sp-4);box-shadow:var(--shadow)}
+  .read .k{font-size:11.5px;font-weight:500;color:var(--muted)}
+  .read .v{font-size:23px;font-weight:500;margin-top:var(--sp-1);font-variant-numeric:tabular-nums;color:var(--ink)}
+  .read .t{font-size:11.5px;color:var(--muted);margin-top:2px}
+
+  /* device grid */
+  .dev{display:grid;grid-template-columns:repeat(2,1fr);gap:var(--sp-3)}
+  @media(min-width:600px){.dev{grid-template-columns:repeat(3,1fr)}}
+  .tile{background:var(--panel);border-radius:var(--radius-md);padding:var(--sp-4);position:relative;box-shadow:var(--shadow)}
+  .tile-head{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:2px}
+  .tile-icon{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    background:var(--track);color:var(--muted);flex-shrink:0;transition:background .2s,color .2s}
+  .tile .tn{font-size:13px;font-weight:500;color:var(--ink-2)}
+  .tile .ts{font-size:21px;font-weight:500;margin-top:var(--sp-3);color:var(--ink)}
+  .tile.on-cool .tile-icon{background:var(--coolbg);color:var(--cool)} .tile.on-cool .ts{color:var(--cool)}
+  .tile.on-heat .tile-icon{background:var(--heatbg);color:var(--heat)} .tile.on-heat .ts{color:var(--heat)}
+  .tile.on-comf .tile-icon{background:var(--comfbg);color:var(--comf)} .tile.on-comf .ts{color:var(--comf)}
+  .tile.off .ts{color:var(--muted)}
+  .tile.manual{box-shadow:0 0 0 1.5px var(--manual),var(--shadow)}
+  .manual-badge{position:absolute;top:var(--sp-4);right:var(--sp-4);font-size:9.5px;font-weight:600;
+    color:var(--manual);letter-spacing:.03em}
+  .bars{display:flex;gap:3px;margin-top:var(--sp-3)}.bars span{flex:1;height:4px;border-radius:2px;background:var(--track)}.bars span.lit{background:var(--comf)}
+
+  .switch-row{display:flex;align-items:center;justify-content:space-between;margin-top:var(--sp-4)}
+  .switch-row .sr-label{font-size:12.5px;color:var(--muted)}
+  .gswitch{position:relative;display:inline-block;width:34px;height:20px;flex:none}
+  .gswitch input{opacity:0;width:0;height:0;position:absolute}
+  .gswitch .track{position:absolute;inset:0;background:var(--track);border-radius:99px;cursor:pointer;transition:.15s}
+  .gswitch .thumb{position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#fff;
+    box-shadow:0 1px 2px rgba(0,0,0,.25);transition:.15s}
+  .gswitch input:checked + .track{background:var(--cool)}
+  .gswitch input:checked + .track .thumb{transform:translateX(14px)}
+
+  .stepper{display:flex;margin-top:var(--sp-3);border:1px solid var(--hair);border-radius:var(--radius-sm);overflow:hidden}
+  .stepper button{flex:1;border-radius:0;border:none;box-shadow:none;background:transparent}
+  .stepper button:first-child{border-right:1px solid var(--hair)}
+
+  input.slider{-webkit-appearance:none;width:100%;height:4px;border-radius:99px;background:var(--track);margin-top:var(--sp-3);outline:none}
+  input.slider::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:var(--cool);cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+  input.slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;border:none;background:var(--cool);cursor:pointer}
+  .slider-ticks{display:flex;justify-content:space-between;padding:0 1px;margin-top:5px}
+  .slider-ticks span{width:2px;height:2px;border-radius:50%;background:var(--hair)}
+  .slider-label{font-size:11.5px;color:var(--muted);margin-top:var(--sp-2);text-align:center}
+
+  .swatches{display:flex;gap:var(--sp-2);margin-top:var(--sp-3)}
+  button.swatch{width:24px;height:24px;padding:0;border-radius:50%;border:1.5px solid var(--panel);box-shadow:0 0 0 1px var(--hair)}
+  button.swatch-red{background:#d93025}
+  button.swatch-green{background:#1e8e3e}
+  button.swatch-blue{background:#1a73e8}
+
+  .confirm-row{display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--hair)}
+  .confirm-label{font-size:11px;color:var(--muted)}
+  .link-btn{background:none;border:none;box-shadow:none;padding:2px 4px;font-size:11.5px;font-weight:500;color:var(--muted);text-decoration:underline;text-underline-offset:2px}
+  .link-btn:hover{color:var(--cool);background:none}
+
+  /* generic buttons */
+  button{font:inherit;cursor:pointer;border-radius:99px;border:1px solid var(--hair);background:var(--panel);
+    color:var(--ink-2);padding:8px 16px;font-size:13px;font-weight:500;transition:background .15s,color .15s}
+  button:hover{background:var(--track)}
+  button.active{background:var(--coolbg);border-color:var(--coolbg);color:var(--cool);font-weight:600}
+  button.primary{background:var(--cool);border-color:var(--cool);color:#fff;font-weight:600}
+  button.primary:hover{filter:brightness(1.06)}
   button:disabled{opacity:.5;cursor:default}
-  button.mini{padding:4px 9px;font-size:12px}
-  .note{margin-top:10px;font-size:13px;line-height:1.5;color:var(--ink);background:var(--bg);border-left:2px solid var(--cool);border-radius:0 8px 8px 0;padding:9px 11px}
-  .note.err{border-color:var(--warn);color:var(--warn)}
-  pre{background:#0a1014;color:#c9d6de;border:1px solid var(--hair);border-radius:9px;padding:12px;overflow-x:auto;font-family:ui-monospace,monospace;font-size:12px;margin:9px 0 0;white-space:pre}
-  .rule{background:var(--panel);border:1px solid var(--hair);border-radius:11px;padding:12px 14px;margin-bottom:9px}
-  .rule.dis{opacity:.55}
-  .rhead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
-  .rname{font-weight:650;font-size:14.5px}
-  .rsrc{font-size:12.5px;color:var(--muted);margin-top:2px;font-style:italic}
-  .pill{display:inline-block;font-family:ui-monospace,monospace;font-size:10px;font-weight:650;padding:2px 7px;border-radius:99px;letter-spacing:.04em;text-transform:uppercase}
+  button.mini{padding:6px 13px;font-size:12.5px}
+
+  /* thermostat */
+  .thermo{background:var(--panel);border-radius:var(--radius-lg);padding:var(--sp-5) var(--sp-6);margin-top:var(--sp-3);box-shadow:var(--shadow)}
+  .thermo-row{display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap}
+  .thermo-label{font-weight:500;font-size:14px;margin-right:var(--sp-1);color:var(--ink)}
+  .thermo input[type=number]{font:inherit;background:var(--bg);border:1px solid var(--hair);border-radius:var(--radius-sm);
+    color:var(--ink);padding:7px 10px;text-align:center;width:64px}
+  .thermo-status{font-size:12.5px;color:var(--muted);margin-top:var(--sp-3)}
+  .thermo-status.active{color:var(--comf);font-weight:500}
+
+  /* chat / automations */
+  .chat{background:var(--panel);border-radius:var(--radius-lg);padding:var(--sp-5);box-shadow:var(--shadow)}
+  .chat textarea{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--hair);border-radius:var(--radius-md);
+    padding:var(--sp-3) var(--sp-4);font:inherit;font-size:14px;resize:vertical;min-height:44px;outline:none;box-sizing:border-box}
+  .chat textarea:focus{border-color:var(--cool)}
+  .row{display:flex;gap:var(--sp-2);align-items:center;margin-top:var(--sp-3)}
+  .hint{font-size:12px;color:var(--muted);flex:1}
+  .note{margin-top:var(--sp-3);font-size:13px;line-height:1.5;color:var(--ink-2);background:var(--bg);
+    border-radius:var(--radius-sm);padding:var(--sp-3) var(--sp-4);border-left:3px solid var(--cool)}
+  .note.err{border-color:var(--warn);color:var(--warn);background:var(--warnbg)}
+  pre{background:var(--bg);color:var(--ink-2);border:1px solid var(--hair);border-radius:var(--radius-md);padding:var(--sp-4);
+    overflow-x:auto;font-family:ui-monospace,monospace;font-size:12px;margin:var(--sp-3) 0 0;white-space:pre}
+
+  .rule{background:var(--panel);border-radius:var(--radius-md);padding:var(--sp-4) var(--sp-5);margin-bottom:var(--sp-3);box-shadow:var(--shadow)}
+  .rule.dis{opacity:.5}
+  .rhead{display:flex;justify-content:space-between;align-items:flex-start;gap:var(--sp-3)}
+  .rname{font-weight:500;font-size:14.5px;color:var(--ink)}
+  .rsrc{font-size:12px;color:var(--muted);margin-top:2px;font-style:italic}
+  .pill{display:inline-block;font-size:10.5px;font-weight:600;padding:3px 10px;border-radius:99px}
   .p-app{background:var(--coolbg);color:var(--cool)} .p-gh{background:var(--ghbg);color:var(--gh)}
-  .ractions{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
-  .empty{color:var(--muted);font-size:13px;padding:6px 2px}
-  .foot{margin-top:22px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);text-align:center}
+  .ractions{display:flex;gap:var(--sp-2);margin-top:var(--sp-3);flex-wrap:wrap}
+  .empty{color:var(--muted);font-size:13px;padding:var(--sp-2) 2px}
+  .foot{margin-top:var(--sp-6);font-size:11.5px;color:var(--muted);text-align:center}
 
   /* activity log */
-  .activity{background:var(--panel);border:1px solid var(--hair);border-radius:13px;max-height:340px;overflow-y:auto}
-  .aitem{display:flex;gap:10px;padding:9px 14px;border-bottom:1px solid var(--hair);font-size:12.5px}
+  .activity{background:var(--panel);border-radius:var(--radius-lg);max-height:340px;overflow-y:auto;box-shadow:var(--shadow)}
+  .aitem{display:flex;gap:var(--sp-3);padding:var(--sp-3) var(--sp-5);border-bottom:1px solid var(--hair);font-size:12.5px;align-items:center}
   .aitem:last-child{border-bottom:none}
-  .atype{font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;
-    padding:2px 6px;border-radius:5px;white-space:nowrap;height:fit-content}
+  .atype{font-size:9.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;
+    padding:3px 8px;border-radius:99px;white-space:nowrap;height:fit-content}
   .atype.mode{background:var(--coolbg);color:var(--cool)}
   .atype.rule{background:var(--comfbg);color:var(--comf)}
-  .atype.manual{background:color-mix(in srgb,var(--manual) 18%,transparent);color:var(--manual)}
+  .atype.manual{background:color-mix(in srgb,var(--manual) 16%,transparent);color:var(--manual)}
+  .atype.confirm{background:var(--track);color:var(--muted)}
   .atype.outage,.atype.escalate{background:var(--warnbg);color:var(--warn)}
-  .atype.autotune{background:var(--ghbg);color:var(--gh)}
-  .amsg{flex:1}
-  .atime{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);white-space:nowrap}
+  .atype.autotune,.atype.thermostat{background:var(--ghbg);color:var(--gh)}
+  .amsg{flex:1;color:var(--ink-2)}
+  .atime{font-size:11px;color:var(--muted);white-space:nowrap}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="top">
-    <span class="eyebrow">Climate Brain</span>
-    <span class="mono" style="font-size:11px;color:var(--muted)"><span class="dot" id="live"></span><span id="src">—</span></span>
+    <span class="brand">JO's Home Automation</span>
+    <span class="status"><span class="dot" id="live"></span><span id="src">—</span></span>
   </div>
-  <h1>Room control</h1>
 
   <div id="alerts"></div>
   <div class="mode m-comf" id="modeCard">
-    <div class="ml">Active mode</div><div class="mn" id="modeName">connecting…</div>
+    <div class="ml">Active mode</div><div class="mn" id="modeName">Connecting…</div>
     <div class="mr" id="modeReason">Reading sensor…</div>
   </div>
   <div class="reads">
@@ -107,21 +192,44 @@
     <div class="read"><div class="k">Feels like</div><div class="v" id="hi">—</div><div class="t" id="spread">heat index</div></div>
   </div>
 
-  <div class="dev">
-    <div class="tile off" id="tC"><div class="tn">Cooler · GH</div><div class="ts" id="sC">—</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:9px">Voice / Google Home only</div></div>
+  <div class="thermo" id="thermoCard">
+    <div class="thermo-row">
+      <span class="thermo-label">Thermostat</span>
+      <input type="number" id="thermoTarget" placeholder="23" step="0.5">
+      <span style="font-size:12px;color:var(--muted)">° for</span>
+      <input type="number" id="thermoHours" value="6" min="0.5" max="24" step="0.5" style="width:52px">
+      <span style="font-size:12px;color:var(--muted)">h</span>
+      <button class="mini primary" onclick="setThermostat()">Set</button>
+    </div>
+    <div id="thermoStatus" class="thermo-status"></div>
+  </div>
 
-    <div class="tile off" id="tF"><div class="tn">Fan</div><div class="ts" id="sF">—</div>
+  <h2>Devices</h2>
+  <div class="dev">
+    <div class="tile off" id="tC">
+      <div class="tile-head"><span class="tile-icon"></span><div class="tn">Cooler · Google Home</div></div>
+      <div class="ts" id="sC">—</div>
+      <div style="font-size:11.5px;color:var(--muted);margin-top:var(--sp-3)">Inferred — compare against the real cooler to verify the script</div></div>
+
+    <div class="tile off" id="tF">
+      <div class="tile-head"><span class="tile-icon"></span><div class="tn">Fan</div></div>
+      <div class="ts" id="sF">—</div>
       <div class="bars" id="fb"><span></span><span></span><span></span><span></span><span></span></div>
       <div class="ctl" id="ctlF"></div></div>
 
-    <div class="tile off" id="tH"><div class="tn">Heater</div><div class="ts" id="sH">—</div>
+    <div class="tile off" id="tH">
+      <div class="tile-head"><span class="tile-icon"></span><div class="tn">Heater</div></div>
+      <div class="ts" id="sH">—</div>
       <div class="ctl" id="ctlH"></div></div>
 
-    <div class="tile off" id="tL"><div class="tn">LED strip</div><div class="ts" id="sL">—</div>
+    <div class="tile off" id="tL">
+      <div class="tile-head"><span class="tile-icon"></span><div class="tn">LED strip</div></div>
+      <div class="ts" id="sL">—</div>
       <div class="ctl" id="ctlL"></div></div>
 
-    <div class="tile off" id="tP"><div class="tn">Projector</div><div class="ts" id="sP">—</div>
+    <div class="tile off" id="tP">
+      <div class="tile-head"><span class="tile-icon"></span><div class="tn">Projector</div></div>
+      <div class="ts" id="sP">—</div>
       <div class="ctl" id="ctlP"></div></div>
   </div>
 
@@ -135,15 +243,42 @@
     <div id="chatOut"></div>
   </div>
 
-  <div id="rules" style="margin-top:14px"></div>
+  <div id="rules" style="margin-top:16px"></div>
 
-  <h2>Activity log</h2>
+  <h2>Activity</h2>
   <div class="activity" id="activity"></div>
 
   <div class="foot" id="foot">—</div>
 </div>
 
 <script>
+// Minimal flat line icons (24x24, currentColor stroke) — no emoji.
+const ICON = {
+  cooler: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 2v20M4.8 6.2l14.4 11.6M19.2 6.2L4.8 17.8"/>
+    <path d="M12 2.5l-1.6 1.6M12 2.5l1.6 1.6M12 21.5l-1.6-1.6M12 21.5l1.6-1.6"/>
+    <path d="M4.8 6.2l2.6.5M4.8 6.2l.5-2.6M19.2 6.2l-2.6.5M19.2 6.2l-.5-2.6M4.8 17.8l2.6-.5M4.8 17.8l.5 2.6M19.2 17.8l-2.6-.5M19.2 17.8l-.5 2.6"/>
+  </svg>`,
+  fan: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+    <path d="M12 12c0-3.8 1.7-7 4.3-7 1.8 0 2.7 1.3 2.7 2.8 0 2.6-2.7 4.2-7 4.2z"/>
+    <path d="M12 12c-3.4 1.9-7.3.9-8.4-1.4-.8-1.7 0-3.2 1.5-3.9 2.4-1.1 5.2.8 6.9 5.3z"/>
+    <path d="M12 12c1.3 3.6.1 7.3-2.2 8.2-1.7.7-3.2-.1-3.8-1.6-1-2.4.9-5.2 6-6.6z"/>
+  </svg>`,
+  heater: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3c1 2.6 3.6 4.2 3.6 7.6a3.6 3.6 0 1 1-7.2 0c0-.9.2-1.6.7-2.3.4.8 1.1 1.1 1.5.8-.6-1.8.2-4.2 1.4-6.1z"/>
+  </svg>`,
+  led: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M9.3 18h5.4M10.2 21h3.6"/>
+    <path d="M12 3.2a5.8 5.8 0 0 0-3.4 10.5c.6.4 1 1.1 1 1.9v.4h4.8v-.4c0-.8.4-1.5 1-1.9A5.8 5.8 0 0 0 12 3.2z"/>
+  </svg>`,
+  projector: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.6" y="7.4" width="13.6" height="8.4" rx="2"/>
+    <circle cx="9.4" cy="11.6" r="2.3"/>
+    <path d="M16.2 10.2l5-2.4v7.8l-5-2.4"/>
+  </svg>`,
+};
+
 const $=id=>document.getElementById(id);
 const clsFor=m=>m==='COLD'?'m-heat':m==='MUGGY'?'m-warn':/COOL$|COMFORT/.test(m)?'m-comf':'m-cool';
 const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&lt;','>':'&gt;','&':'&amp;'}[c]||c));
@@ -154,21 +289,22 @@ async function poll(){
 }
 function render(s){
   $('live').style.background=s.live?'var(--comf)':'var(--heat)';
-  $('src').textContent=(s.live?'live · Tuya Cloud':'simulated')+' · cooler: Google Home';
-  $('alerts').innerHTML=(s.alerts||[]).map(a=>`<div class="note err">⚠ ${esc(a)}</div>`).join('');
+  $('src').textContent=(s.live?'Live · Tuya Cloud':'Simulated')+' · cooler via Google Home';
+  $('alerts').innerHTML=(s.alerts||[]).map(a=>`<div class="note err">${esc(a)}</div>`).join('');
   const d=s.decision, r=s.reading;
   if(d&&r){
     $('modeCard').className='mode '+clsFor(d.mode);
     $('modeName').textContent=d.mode; $('modeReason').textContent=d.reason;
     $('temp').textContent=r.temp.toFixed(1)+'°'; $('rh').textContent=Math.round(r.rh)+'%';
     $('hi').textContent=d.heat_index.toFixed(1)+'°'; $('spread').textContent='spread '+d.spread.toFixed(1)+'°';
-    tile('tC','sC',d.cooler,d.cooler?'ON':'OFF','on-cool',null);
+    tile('tC','sC',s.cooler_inferred,s.cooler_inferred?'On':'Off','on-cool',null);
   }
   const dv=s.devices||{};
-  renderFan(dv.fan);
-  renderToggle('tH','sH','ctlH','heater',dv.heater,'on-heat');
-  renderToggle('tL','sL','ctlL','led',dv.led,'on-comf');
-  renderToggle('tP','sP','ctlP','projector',dv.projector,'on-cool');
+  renderFan(dv.fan, s.fan_cap||5);
+  renderHeater(dv.heater);
+  renderLed(dv.led);
+  renderProjector(dv.projector);
+  renderThermostat(s.thermostat);
 
   renderRules(s.rules||[], s.fired_rules||[]);
   $('foot').textContent=new Date().toLocaleTimeString()+(s.fired_rules?.length?'  ·  active: '+s.fired_rules.join(', '):'');
@@ -180,25 +316,91 @@ function tile(t,st,on,label,cls,manualMin){
   const badge=el.querySelector('.manual-badge');
   if(manualMin){
     if(!badge){ const b=document.createElement('div'); b.className='manual-badge'; el.appendChild(b); }
-    el.querySelector('.manual-badge').textContent='MANUAL '+Math.ceil(manualMin)+'m';
+    el.querySelector('.manual-badge').textContent='Manual · '+Math.ceil(manualMin)+'m';
   } else if(badge){ badge.remove(); }
 }
-function renderFan(f){
+function confirmRow(device){
+  return `<div class="confirm-row">
+    <span class="confirm-label">Actually:</span>
+    <button class="link-btn" onclick="confirmState('${device}',true)">On</button>
+    <button class="link-btn" onclick="confirmState('${device}',false)">Off</button>
+  </div>`;
+}
+function switchRow(label, device, checked){
+  return `<div class="switch-row"><span class="sr-label">${label}</span>
+    <label class="gswitch"><input type="checkbox" ${checked?'checked':''} onchange="setDevice('${device}',this.checked)">
+    <span class="track"><span class="thumb"></span></span></label></div>`;
+}
+async function confirmState(device,on){ await fetch(`/api/confirm/${device}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on})}); poll(); }
+function renderFan(f, cap){
   if(!f) return;
-  tile('tF','sF',f.value>0,f.value>0?('SPD '+f.value):'OFF','on-comf',f.manual_min_left);
+  tile('tF','sF',f.value>0,f.value>0?('Speed '+f.value):'Off','on-comf',f.manual_min_left);
   [...$('fb').children].forEach((b,i)=>b.classList.toggle('lit',i<f.value));
-  $('ctlF').innerHTML=[0,1,2,3,4,5].map(v=>
-    `<button class="${f.value===v?'active':''}" onclick="setFan(${v})">${v===0?'Off':v}</button>`).join('');
+  $('ctlF').innerHTML=`
+    <input type="range" min="0" max="${cap}" step="1" value="${f.value}" class="slider"
+           oninput="$('fanLabel').textContent=this.value==0?'Off':'Speed '+this.value"
+           onchange="setFan(this.value)">
+    <div class="slider-ticks">${Array.from({length:cap+1}).map(()=>'<span></span>').join('')}</div>
+    <div class="slider-label" id="fanLabel">${f.value===0?'Off':'Speed '+f.value}</div>
+    ${confirmRow('fan')}`;
 }
-function renderToggle(tileId,stateId,ctlId,device,d,cls){
+function renderHeater(d){
   if(!d) return;
-  tile(tileId,stateId,d.value,d.value?'ON':'OFF',cls,d.manual_min_left);
-  $(ctlId).innerHTML=`
-    <button class="${d.value?'':'active'}" onclick="setDevice('${device}',false)">Off</button>
-    <button class="${d.value?'active':''}" onclick="setDevice('${device}',true)">On</button>`;
+  tile('tH','sH',d.value,d.value?'On':'Off','on-heat',d.manual_min_left);
+  $('ctlH').innerHTML=`
+    ${switchRow('Power','heater',d.value)}
+    <div class="stepper">
+      <button onclick="adjust('heater',-1)">− Cooler</button>
+      <button onclick="adjust('heater',1)">+ Warmer</button>
+    </div>
+    ${confirmRow('heater')}`;
 }
-async function setFan(v){ await fetch('/api/manual/fan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({speed:v})}); poll(); }
+function renderLed(d){
+  if(!d) return;
+  tile('tL','sL',d.value,d.value?'On':'Off','on-comf',d.manual_min_left);
+  $('ctlL').innerHTML=`
+    ${switchRow('Power','led',d.value)}
+    <div class="stepper">
+      <button onclick="adjust('led',-1)">− Dim</button>
+      <button onclick="adjust('led',1)">+ Bright</button>
+    </div>
+    <div class="swatches">
+      <button class="swatch swatch-red" onclick="setColor('red')" aria-label="Red"></button>
+      <button class="swatch swatch-green" onclick="setColor('green')" aria-label="Green"></button>
+      <button class="swatch swatch-blue" onclick="setColor('blue')" aria-label="Blue"></button>
+    </div>
+    ${confirmRow('led')}`;
+}
+function renderProjector(d){
+  if(!d) return;
+  tile('tP','sP',d.value,d.value?'On':'Off','on-cool',d.manual_min_left);
+  $('ctlP').innerHTML=`${switchRow('Power','projector',d.value)}${confirmRow('projector')}`;
+}
+async function setFan(v){ await fetch('/api/manual/fan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({speed:parseInt(v)})}); poll(); }
 async function setDevice(device,on){ await fetch(`/api/manual/${device}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on})}); poll(); }
+async function adjust(device,delta){ await fetch(`/api/manual/${device}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({delta})}); poll(); }
+async function setColor(color){ await fetch('/api/manual/led',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({color})}); poll(); }
+
+function renderThermostat(t){
+  const el=$('thermoStatus');
+  if(t){
+    el.className='thermo-status active';
+    el.textContent=`Targeting ${t.target}° for ${Math.ceil(t.minutes_left)} more min — `;
+    const btn=document.createElement('button');
+    btn.className='link-btn'; btn.textContent='Cancel'; btn.onclick=cancelThermostat;
+    el.appendChild(btn);
+  } else {
+    el.className='thermo-status';
+    el.textContent='Not set — normal automation is running the comfort band.';
+  }
+}
+async function setThermostat(){
+  const target=parseFloat($('thermoTarget').value), hours=parseFloat($('thermoHours').value)||6;
+  if(!target && target!==0) return;
+  await fetch('/api/thermostat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target,hours})});
+  poll();
+}
+async function cancelThermostat(){ await fetch('/api/thermostat',{method:'DELETE'}); poll(); }
 
 function renderRules(rules, fired){
   if(!rules.length){ $('rules').innerHTML='<div class="empty">No automations yet. Describe one above.</div>'; return; }
@@ -209,14 +411,14 @@ function renderRules(rules, fired){
       ? `<button class="mini" onclick='copyText(${JSON.stringify(r.gh_yaml)})'>Copy Google Home script</button>`
       : (r.when==='manual'||!r.when ? `<button class="mini" onclick="runRule('${r.id}')">Run now</button>` : '');
     const sub = gh ? esc(r.gh_summary||'Google Home automation')
-                   : (r.when&&r.when!=='manual' ? '<span class="mono">when '+esc(r.when)+'</span>' : 'manual scene');
+                   : (r.when&&r.when!=='manual' ? '<span style="font-family:ui-monospace,monospace;font-size:12px">when '+esc(r.when)+'</span>' : 'Manual scene');
     return `<div class="rule ${r.enabled?'':'dis'}">
       <div class="rhead">
         <div><div class="rname">${esc(r.name)} ${isFired?'<span style="color:var(--comf)">●</span>':''}</div>
         <div class="rsrc">"${esc(r.source_text)}"</div></div>
         <span class="pill ${gh?'p-gh':'p-app'}">${gh?'Google Home':'App'}</span>
       </div>
-      <div style="font-size:12.5px;color:var(--muted);margin-top:7px">${sub}</div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:var(--sp-3)">${sub}</div>
       <div class="ractions">
         ${actions}
         <button class="mini" onclick="toggleRule('${r.id}',${!r.enabled})">${r.enabled?'Disable':'Enable'}</button>
@@ -254,7 +456,7 @@ function copyText(t){ navigator.clipboard.writeText(t); }
 async function pollActivity(){
   try{
     const {events}=await (await fetch('/api/activity?limit=60')).json();
-    if(!events.length){ $('activity').innerHTML='<div class="empty" style="padding:12px 14px">No activity yet.</div>'; return; }
+    if(!events.length){ $('activity').innerHTML='<div class="empty" style="padding:14px 20px">No activity yet.</div>'; return; }
     $('activity').innerHTML=events.map(e=>`
       <div class="aitem">
         <span class="atype ${e.type}">${esc(e.type)}</span>
@@ -263,6 +465,13 @@ async function pollActivity(){
       </div>`).join('');
   }catch(e){}
 }
+
+// paint the static tile icons once (they're outside the JS-managed render() regions)
+$('tC').querySelector('.tile-icon').innerHTML=ICON.cooler;
+$('tF').querySelector('.tile-icon').innerHTML=ICON.fan;
+$('tH').querySelector('.tile-icon').innerHTML=ICON.heater;
+$('tL').querySelector('.tile-icon').innerHTML=ICON.led;
+$('tP').querySelector('.tile-icon').innerHTML=ICON.projector;
 
 $('chatbox').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)) send(); });
 poll(); pollActivity();

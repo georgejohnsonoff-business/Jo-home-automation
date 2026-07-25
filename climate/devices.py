@@ -58,6 +58,31 @@ class Fan:
         may have reset to a different speed than we last cached."""
         self._speed = -1
 
+    def sync_from_cloud(self):
+        """
+        Reconcile our tracked speed with the REAL device state. Unlike the
+        IR-only devices (heater/LED/projector), the fan has genuine
+        bidirectional Tuya status — we don't have to trust our own
+        write-only cache forever. Confirmed live: a stale cache (believed
+        speed 1) silently stopped sending commands for over an hour while
+        the real fan sat at speed 3, since set_speed() no-ops when the
+        requested value already matches what we (wrongly) think is current.
+        Call this once per tick, before deciding whether to send anything.
+        """
+        status = self.cloud.status(self.cfg["id"])
+        if not status:
+            return   # cloud unreachable this tick — keep the existing belief, don't guess
+        if not status.get(self.cfg["code_power"], True):
+            self._speed = 0
+            return
+        val = status.get(self.cfg["code_speed"])
+        if val in self.cfg["speed_values"]:
+            real_speed = self.cfg["speed_values"].index(val) + 1
+            if real_speed != self._speed:
+                log.warning("Fan cache was stale: believed %s, cloud reports %s — correcting.",
+                           self._speed, real_speed)
+                self._speed = real_speed
+
 
 class ToggleIR:
     """
@@ -116,8 +141,21 @@ class HandyHeater:
     TEMP_MIN, TEMP_MAX = 15, 32
     RESET_TEMP = 25
     RESET_FAN = "HIGH"
+    MAX_STEP_PER_CALL = 1   # one press per call, no burst at all; larger deltas
+                            # close over successive ticks instead of a rapid-fire
+                            # run (confirmed the projector's receiver on the
+                            # same IR hub misreads a tight burst of repeated
+                            # pulses as its own "OK" button — re-learning the
+                            # code and shortening the burst to 3 with a longer
+                            # gap didn't stop it, so the exposure itself is the
+                            # risk, not the pattern. A single, isolated pulse is
+                            # the minimum footprint software can produce.)
+    TEMP_DEADBAND = 2       # ignore dial corrections smaller than this — most
+                            # single-degree "corrections" are just sensor noise,
+                            # not worth an extra IR pulse and the risk that
+                            # comes with it
 
-    def __init__(self, cloud: TuyaCloud, ir_hub_id: str, cfg: dict, pulse_delay: float = 0.35):
+    def __init__(self, cloud: TuyaCloud, ir_hub_id: str, cfg: dict, pulse_delay: float = 1.1):
         self.cloud = cloud
         self.ir = ir_hub_id
         self.remote = cfg["remote_id"]
@@ -144,7 +182,14 @@ class HandyHeater:
             if i < times - 1:
                 time.sleep(self.pulse_delay)
 
-    def set(self, on: bool, temp: int | None = None, fan: str | None = None):
+    def set(self, on: bool, temp: int | None = None, fan: str | None = None, force_step: bool = False):
+        """
+        `force_step=True` bypasses the deadband (but NOT the per-call step
+        cap) — use for an explicit manual +/- press, where the deadband
+        would otherwise silently eat a deliberate single-degree click. The
+        deadband stays on for the automatic per-tick dial correction, where
+        it's suppressing sensor-noise jitter, not user intent.
+        """
         if on and not self._on:
             self._press("power")
             self._on = True
@@ -163,11 +208,14 @@ class HandyHeater:
         if temp is not None:
             target = max(self.TEMP_MIN, min(self.TEMP_MAX, round(temp)))
             delta = target - self._temp
-            if delta > 0:
-                self._press("increase", delta)
-            elif delta < 0:
-                self._press("decrease", -delta)
-            self._temp = target
+            if force_step or abs(delta) >= self.TEMP_DEADBAND:
+                step = max(-self.MAX_STEP_PER_CALL, min(self.MAX_STEP_PER_CALL, delta))
+                if step > 0:
+                    self._press("increase", step)
+                elif step < 0:
+                    self._press("decrease", -step)
+                self._temp += step   # any remainder closes on later ticks, not this call
+            # else: within the deadband — not worth an IR pulse for a 1° nudge
 
         if fan is not None and fan != self._fan:
             self._press("fan")   # strict 2-state cycle — one press always flips it
@@ -212,8 +260,9 @@ class LED:
         self.remote = remote_id
         self.code_on = code_on
         self.code_off = code_off
-        self.colors: dict[str, str] = {}     # e.g. {"blue": "<code>", "red": ...}
+        self.colors: dict[str, str] = {}      # e.g. {"blue": "<code>", "red": ...}
         self.modes: dict[str, str] = {}       # e.g. {"smooth": "<code>", ...}
+        self.brightness: dict[str, str] = {}  # {"up": "<code>", "down": "<code>"}
         self._on = False
         self._color: str | None = None
 
@@ -240,6 +289,15 @@ class LED:
         code = self.modes.get(name.lower())
         if not code:
             log.warning("LED mode '%s' not learned yet — skipping.", name)
+            return
+        self.cloud.ir_send_learned(self.ir, self.remote, code)
+
+    def press_brightness(self, direction: str):
+        """direction: 'up' or 'down' — one press per call, same reasoning as
+        the heater's step cap: minimal IR footprint per user action."""
+        code = self.brightness.get(direction.lower())
+        if not code:
+            log.warning("LED brightness '%s' not learned yet — skipping.", direction)
             return
         self.cloud.ir_send_learned(self.ir, self.remote, code)
 

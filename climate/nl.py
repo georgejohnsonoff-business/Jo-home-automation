@@ -52,7 +52,9 @@ SYSTEM = """You convert a person's plain-English home-automation request into ON
 - heat_index  : "feels like" °C
 - hour, minute: local clock (0-23, 0-59)
 - weekday     : 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
-Helper functions allowed in expressions: tier(heat_index) -> fan speed 1-5, min, max, abs, round.
+Helper functions allowed in expressions: tier(heat_index) -> fan speed 1-4 (capped — beyond
+this the room should rely on the cooler, never push the fan to 5; 5 is reserved for muggy
+conditions where the cooler can't help), min, max, abs, round.
 Operators: and or not, < <= > >= == !=, + - * / %. Example: `heat_index > 27 and spread > 7 and weekday <= 3`
 (weekday <= 3 means Mon-Thu; combine with "and" for "on these weekdays only" requests).
 

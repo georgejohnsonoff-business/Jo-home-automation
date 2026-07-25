@@ -26,14 +26,29 @@ from .brain import Thresholds
 log = logging.getLogger("learn")
 
 
-def infer_cooler_state(temp: float, rh: float, thr: Thresholds) -> bool:
-    """Best-effort replay of the Google Home cooler script's own trigger logic."""
-    hot_dry = temp > 29 and rh < 55
-    muggy_off = rh > 62
-    cool_off = temp < 25
-    # Without hysteresis-state we can't know for certain; hot_dry firing is the
-    # strongest signal. Treat "not muggy and not cool and hot_dry" as likely-on.
-    return hot_dry and not muggy_off and not cool_off
+def infer_cooler_state(temp: float, rh: float, prev_on: bool, thr: Thresholds) -> bool:
+    """
+    Best-effort replay of the Google Home cooler script's own trigger logic —
+    mirrored exactly from the live "feels like target" script, three
+    independent one-way automations, all on raw temperatureAmbient/
+    humidityAmbientPercent (not our heat_index):
+      ON  (raw heat):  temp > cooler_on_hi
+      ON  (muggy heat): temp > muggy_early_temp AND rh > muggy_early_rh
+                        — turns on earlier since high humidity makes it FEEL
+                        hotter than the thermometer says, even though the
+                        cooler itself works less well in that same humidity
+      OFF (cooled down or swamp safety): temp <= cooler_off_hi OR rh > rh_hardlock
+    GH holds state between firings same as any real automation, so we carry
+    `prev_on` forward when none of the trigger conditions are currently true.
+    """
+    raw_heat_on = temp > thr.cooler_on_hi
+    muggy_heat_on = temp > thr.muggy_early_temp and rh > thr.muggy_early_rh
+    off_cond = temp <= thr.cooler_off_hi or rh > thr.rh_hardlock
+    if off_cond:
+        return False
+    if raw_heat_on or muggy_heat_on:
+        return True
+    return prev_on
 
 
 def _combo_key(fan: int, heater: bool, cooler: bool) -> str:
@@ -71,8 +86,16 @@ class Learner:
         log.info("learned %s: %.3f °C/min, %.3f %%RH/min", s["combo"], temp_slope, rh_slope)
 
     # -- 3. real-time escalation ----------------------------------------------
-    def escalate(self, decision, fan_current: int) -> tuple[int, list[str]]:
-        """Returns (possibly-bumped fan speed, alerts)."""
+    def escalate(self, decision, fan_current: int, fan_cap: int = 4) -> tuple[int, list[str]]:
+        """
+        Returns (possibly-bumped fan speed, alerts). Escalation stops at
+        `fan_cap` (4) for anything except MUGGY (decision.mode never reaches
+        here as MUGGY since MUGGY isn't in the escalatable-mode list below —
+        it already runs fan=5 unconditionally in brain.decide()). Once fan is
+        AT the cap and still underperforming, we stop trying to push more air
+        and instead flag reliance on the cooler — that's the intended lever
+        from here, not a 5th fan speed.
+        """
         alerts = []
         if not self.enabled or self._segment_start is None:
             return fan_current, alerts
@@ -86,12 +109,12 @@ class Learner:
         rate = self.store.get_rate(combo)
         min_rate = self.cfg.get("min_cool_rate_c_per_min", 0.03)
         if rate and rate["samples"] >= 2 and rate["temp_slope"] > -min_rate:
-            if fan_current < 5:
+            if fan_current < fan_cap:
                 alerts.append(f"Fan-only cooling underperforming ({rate['temp_slope']:.2f}°C/min) "
                              f"after {minutes:.0f} min — escalating fan speed.")
-                return min(5, fan_current + 1), alerts
-            alerts.append(f"Room not cooling despite fan at max for {minutes:.0f} min — "
-                         f"cooler may not be engaging. Check Google Home.")
+                return min(fan_cap, fan_current + 1), alerts
+            alerts.append(f"Room not cooling despite fan at the {fan_cap}-speed cap for {minutes:.0f} min — "
+                         f"leaning on the cooler now, not more airflow. Check it's actually running in Google Home.")
         return fan_current, alerts
 
     # -- 4. daily bounded auto-tune -------------------------------------------

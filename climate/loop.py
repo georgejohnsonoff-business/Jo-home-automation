@@ -15,7 +15,7 @@ import logging
 import math
 import time
 from collections import deque
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, time as dtime
 
 from .brain import Decision, Thresholds, decide, dew_point, heat_index, heater_dial
@@ -85,6 +85,7 @@ class Controller:
         self.desired.setdefault("led", False)
         self.desired.setdefault("projector", False)
         self.desired.setdefault("led_color", None)
+        self.cooler_inferred = False   # our best-effort guess at the GH-owned cooler's state
 
         # Toggle-based devices (heater/projector) default their tracked state
         # to False on construction — that's only correct for a fresh install.
@@ -105,12 +106,18 @@ class Controller:
         # -- power outage watch
         self._outage_ids = cfg.get("outage_watch", {}).get("device_ids", [])
         self._all_online_prev: bool | None = None
+        self._led_recover_until: float | None = None   # monotonic deadline
+        self._led_recover_next: float | None = None    # monotonic next resend
+
+        # -- thermostat override: {"target": float, "expires": monotonic}
+        self.thermostat: dict | None = None
 
     # -- IR scenes (LED) — fetched fresh so re-learns are picked up -----------
     # colour/mode key_names as Tuya learned them (note trailing spaces in some —
     # already handled by .strip() below)
     _LED_COLOR_KEYS = {"blue": "led blue colour", "green": "led green colour", "red": "led red colour"}
     _LED_MODE_KEYS = {"smooth": "led smooth mode", "fade": "led fade mode", "strobe": "led strobe mode"}
+    _LED_BRIGHTNESS_KEYS = {"up": "led strip brightness incr", "down": "led brightness decrease"}
 
     def _load_ir_scenes(self):
         if not self.cloud.ready:
@@ -123,6 +130,7 @@ class Controller:
         self.led.code_off = by_name.get(_SCENE_KEYS[("led", "off")], "")
         self.led.colors = {name: by_name[key] for name, key in self._LED_COLOR_KEYS.items() if key in by_name}
         self.led.modes = {name: by_name[key] for name, key in self._LED_MODE_KEYS.items() if key in by_name}
+        self.led.brightness = {name: by_name[key] for name, key in self._LED_BRIGHTNESS_KEYS.items() if key in by_name}
 
     def _persist_desired(self):
         self.db.kv_set(DESIRED_KEY, json.dumps(self.desired))
@@ -130,9 +138,10 @@ class Controller:
     def _heater_dial_now(self) -> int:
         """Intensity to push the heater's dial RIGHT NOW, from OUR sensor —
         never the heater's own thermostat. Falls back to a mild default if
-        we have no reading yet."""
-        t_c = self.reading[0] if self.reading else self.thr.heater_on_t
-        return heater_dial(t_c, self.thr)
+        we have no reading yet. Respects an active thermostat override."""
+        thr = self._active_thresholds()
+        t_c = self.reading[0] if self.reading else thr.heater_on_t
+        return heater_dial(t_c, thr)
 
     def ir_scene(self, device: str, command: str, value: str = ""):
         """Callback used by rules.py's run_actions() for led/projector actions."""
@@ -184,23 +193,48 @@ class Controller:
             return False
         return True
 
-    def set_manual(self, device: str, on: bool | None = None, speed: int | None = None):
-        """Called by the dashboard's manual-control endpoint."""
+    def set_manual(self, device: str, on: bool | None = None, speed: int | None = None,
+                   delta: int | None = None, color: str | None = None):
+        """
+        Called by the dashboard's manual-control endpoint.
+        `speed`   — fan: absolute slider value, clamped to the fan cap.
+        `delta`   — heater: +1/-1 dial step; led: +1/-1 brightness step
+                    (bypasses the heater's automatic-correction deadband —
+                    a deliberate manual click should always do something).
+        `color`   — led: color name button (red/green/blue).
+        """
         minutes = self.cfg.get("manual_override_minutes", 30)
         expires = time.monotonic() + minutes * 60
         if device == "fan":
+            speed = max(0, min(self.thr.fan_cap, speed if speed is not None else 0))
             self.fan.force_resend()
-            self.fan.set_speed(speed or 0)
-            self.desired["fan"] = speed or 0
-            self.manual["fan"] = {"value": speed or 0, "expires": expires}
+            self.fan.set_speed(speed)
+            self.desired["fan"] = speed
+            self.manual["fan"] = {"value": speed, "expires": expires}
         elif device == "heater":
-            self.heater.set(bool(on), temp=self._heater_dial_now() if on else None, fan="HIGH")
-            self.desired["heater"] = bool(on)
-            self.manual["heater"] = {"value": bool(on), "expires": expires}
+            if delta is not None:
+                base = self.heater._temp if self.heater._on else self._heater_dial_now()
+                self.heater.set(True, temp=base + delta, fan="HIGH", force_step=True)
+                self.desired["heater"] = True
+                self.manual["heater"] = {"value": True, "expires": expires}
+            else:
+                self.heater.set(bool(on), temp=self._heater_dial_now() if on else None, fan="HIGH")
+                self.desired["heater"] = bool(on)
+                self.manual["heater"] = {"value": bool(on), "expires": expires}
         elif device == "led":
-            self.led.set(bool(on), force=True)
-            self.desired["led"] = bool(on)
-            self.manual["led"] = {"value": bool(on), "expires": expires}
+            if color is not None:
+                self.led.set_color(color)
+                self.desired["led_color"] = color
+                self.manual["led"] = {"value": self.desired.get("led", True), "expires": expires}
+            elif delta is not None:
+                self.led.press_brightness("up" if delta > 0 else "down")
+                self.manual["led"] = {"value": self.desired.get("led", True), "expires": expires}
+            elif on is not None:
+                self.led.set(bool(on), force=True)
+                self.desired["led"] = bool(on)
+                self.manual["led"] = {"value": bool(on), "expires": expires}
+            else:
+                return False
         elif device == "projector":
             self.projector.set(bool(on))
             self.desired["projector"] = bool(on)
@@ -208,9 +242,77 @@ class Controller:
         else:
             return False
         self._persist_desired()
-        self.db.log_event("manual", f"{device} manually set to {speed if device=='fan' else on}",
-                          {"minutes": minutes})
+        self.db.log_event("manual", f"{device} manually adjusted",
+                          {"minutes": minutes, "on": on, "speed": speed, "delta": delta, "color": color})
         return True
+
+    def confirm_state(self, device: str, on: bool) -> bool:
+        """
+        User-reported ground truth. Corrects our TRACKED belief to match
+        reality WITHOUT sending any command — use this when you know the
+        actual device state (you looked at it) and it might differ from what
+        the app assumes (a toggle-only IR remote has no feedback channel, so
+        this can drift after cross-talk, a missed pulse, or a restart).
+        Does not touch the manual-override window — this is a correction,
+        not a new command.
+        """
+        if device == "fan":
+            self.fan.force_resend()
+            if not on:
+                self.fan.set_speed(0)
+                self.desired["fan"] = 0
+        elif device == "heater":
+            self.heater.force_state(on=on, temp=self.heater._temp, fan=self.heater._fan)
+            self.desired["heater"] = on
+        elif device == "led":
+            self.led.force_state(on)
+            self.desired["led"] = on
+        elif device == "projector":
+            self.projector.force_state(on)
+            self.desired["projector"] = on
+        else:
+            return False
+        self._persist_desired()
+        self.db.log_event("confirm", f"{device} confirmed {'ON' if on else 'OFF'} by user (belief corrected, no command sent)")
+        return True
+
+    # -- thermostat override ------------------------------------------------
+    def set_thermostat(self, target: float, hours: float = 6.0):
+        """
+        Set a single target temperature; fan + heater automation works toward
+        it instead of the normal comfort-band thresholds, for `hours` (then
+        automatically reverts). Recentered band: heater kicks in 1° below
+        target, cooler 1° above — both settle back exactly at target.
+        """
+        expires = time.monotonic() + hours * 3600
+        self.thermostat = {"target": target, "expires": expires}
+        self.db.log_event("thermostat", f"Thermostat set to {target}° for {hours:.1f}h")
+
+    def clear_thermostat(self):
+        self.thermostat = None
+        self.db.log_event("thermostat", "Thermostat override cancelled — back to normal automation")
+
+    def _active_thresholds(self) -> Thresholds:
+        """The Thresholds this tick should actually use — thermostat-recentered
+        if a still-active override is set, otherwise the base config."""
+        if self.thermostat is None:
+            return self.thr
+        if time.monotonic() >= self.thermostat["expires"]:
+            self.db.log_event("thermostat", "Thermostat override expired — back to normal automation")
+            self.thermostat = None
+            return self.thr
+        # Same shape as the permanent defaults (comfort_lo=27.2, cooler_on_hi
+        # =27.5, cooler_off_hi=26.5, heater on/off=26.5) — `target` plays the
+        # role of cooler_on_hi. Fan continuously ramps from 0.3° below target
+        # (off) through target (~3) and beyond; heater snaps full 1° below
+        # target, independent of the fan floor — no easing on either edge.
+        target = self.thermostat["target"]
+        return replace(self.thr,
+                      comfort_lo=target - 0.3,
+                      cooler_on_hi=target,
+                      cooler_off_hi=target - 1.0,
+                      heater_on_t=target - 1.0,
+                      heater_off_t=target - 1.0)
 
     # -- power outage watch -----------------------------------------------------
     def _check_outage(self):
@@ -256,13 +358,34 @@ class Controller:
         self.led.set(self.desired["led"], force=True)
         # "on" alone doesn't stop the flash-demo boot mode — the LED strip
         # apparently already considers itself "on" during that animation.
-        # A specific COLOR command is what actually breaks it out of flashing
-        # and holds a steady state — confirmed by a real outage test.
+        # A specific COLOR command is what actually breaks it out of
+        # flashing, but a SINGLE resend isn't reliable enough on its own
+        # (confirmed: it still flashed again later) — so this now repeats
+        # the colour command every 4 min for 30 min to make it actually
+        # stick, instead of trusting one IR pulse to land.
         if self.desired["led"] and self.desired.get("led_color"):
             self.led.set_color(self.desired["led_color"])
+            now = time.monotonic()
+            self._led_recover_until = now + 30 * 60
+            self._led_recover_next = now + 4 * 60
 
         self.fan.force_resend()
         self.fan.set_speed(self.desired["fan"])
+
+    def _led_recover_tick(self):
+        """Keep re-sending the LED colour every 4 min for 30 min after an
+        outage recovery — see the comment in _recover_from_outage()."""
+        if self._led_recover_until is None:
+            return
+        now = time.monotonic()
+        if now >= self._led_recover_until:
+            self._led_recover_until = None
+            self._led_recover_next = None
+            return
+        if now >= self._led_recover_next:
+            self.led.set_color(self.desired["led_color"])
+            self._led_recover_next = now + 4 * 60
+            self.db.log_event("outage", "Re-sent LED colour to hold it out of flash-demo mode.")
 
     # -- one cycle ----------------------------------------------------------
     def tick(self):
@@ -271,6 +394,9 @@ class Controller:
         now = time.monotonic()
 
         self._check_outage()
+        self._led_recover_tick()
+        if self.cloud.ready:
+            self.fan.sync_from_cloud()   # catch any real-world drift before deciding whether to command it
 
         r = self._read()
         if r is None or (now - self.last_good_read) > self.cfg["sensor_stale_seconds"]:
@@ -282,7 +408,21 @@ class Controller:
             return
 
         t_c, rh = r
-        target = decide(t_c, rh, self.decision, self.thr)
+
+        # recent warming rate (°C/min of feels-like, last ~10 min) — lets
+        # decide() hand off to the cooler early on a fast heat-up instead of
+        # waiting until the fan is already at its cap.
+        hi_now = heat_index(t_c, rh)
+        now_ts = time.time()
+        window = [h for h in self.history if now_ts - h["t"] <= 600]
+        if window:
+            span_min = max((now_ts - window[0]["t"]) / 60.0, 1.0)
+            hi_trend = (hi_now - window[0]["hi"]) / span_min
+        else:
+            hi_trend = 0.0
+
+        active_thr = self._active_thresholds()   # thermostat-recentered if an override is active
+        target = decide(t_c, rh, self.decision, active_thr, hi_trend=hi_trend)
 
         # minimum dwell — hold mode unless nothing is active yet
         if (self.decision and target.mode != self.decision.mode
@@ -297,20 +437,48 @@ class Controller:
         if n and _in_window(datetime.now().time(), _hhmm(n["start"]), _hhmm(n["end"])):
             target.fan = min(target.fan, n["fan_cap"])
 
-        # self-learning: escalate fan if the current combo is underperforming
-        target.fan, notes = self.learner.escalate(target, target.fan)
-        if notes:
-            self.escalation_notes = notes
-            self.alerts.extend(notes)
-            for n_ in notes:
-                self.db.log_event("escalate", n_)
+        # cooldown window (e.g. Mon-Thu 11:00-17:30, away at office) — rest
+        # every gadget regardless of what the room's climate would otherwise
+        # ask for. Forces the DECISION here (not a post-hoc rule action)
+        # specifically so fan/heater never get commanded on and then
+        # immediately back off again within the same tick.
+        cd = self.cfg.get("cooldown")
+        if cd and datetime.now().weekday() in cd.get("weekdays", []) and \
+                _in_window(datetime.now().time(), _hhmm(cd["start"]), _hhmm(cd["end"])):
+            target.fan = 0
+            target.heater = False
+            # Heater is a single-press toggle with no feedback channel — set()
+            # only presses if it believes it's currently ON, so this can never
+            # accidentally send an ON press; it's a no-op once truly off,
+            # matching the outage-recovery logic's own tracked-state model.
+            if not self._override_active("led") and self.desired.get("led"):
+                # LED has a genuine dedicated OFF code (not a toggle), so this
+                # is a real, distinct command, not a risky guess — and set()
+                # without force only actually sends it once, on the on->off
+                # transition, not every tick for the whole window.
+                self.led.set(False)
+                self.desired["led"] = False
+
+        # self-learning: escalate fan if the current combo is underperforming.
+        # Skipped while a thermostat override is active — escalation compares
+        # against learned rates from the OPEN-ENDED comfort mode, which can
+        # easily look "too slow" against a deliberately relaxed thermostat
+        # target and shove the fan right back up, overriding the user's
+        # explicit choice.
+        if self.thermostat is None:
+            target.fan, notes = self.learner.escalate(target, target.fan, fan_cap=self.thr.fan_cap)
+            if notes:
+                self.escalation_notes = notes
+                self.alerts.extend(notes)
+                for n_ in notes:
+                    self.db.log_event("escalate", n_)
 
         # actuate what THIS app owns: fan + heater — unless under manual override
         if not self._override_active("fan"):
             self.fan.set_speed(target.fan)
             self.desired["fan"] = target.fan
         if not self._override_active("heater"):
-            self.heater.set(target.heater, temp=heater_dial(t_c, self.thr) if target.heater else None,
+            self.heater.set(target.heater, temp=heater_dial(t_c, active_thr) if target.heater else None,
                             fan="HIGH")
             self.desired["heater"] = target.heater
         self._persist_desired()
@@ -334,8 +502,8 @@ class Controller:
                     log.error("rule '%s' eval failed: %s", rule.name, e)
 
         # self-learning: log this tick + once-daily bounded threshold tuning
-        cooler_inferred = infer_cooler_state(t_c, rh, self.thr)
-        self.learner.record_tick(t_c, rh, target.mode, target.fan, target.heater, cooler_inferred)
+        self.cooler_inferred = infer_cooler_state(t_c, rh, self.cooler_inferred, self.thr)
+        self.learner.record_tick(t_c, rh, target.mode, target.fan, target.heater, self.cooler_inferred)
         tuned = self.learner.daily_autotune(self.thr)
         if tuned:
             self.alerts.extend(f"Auto-tuned {t}" for t in tuned)
@@ -374,6 +542,11 @@ class Controller:
             "alerts": self.alerts,
             "live": self.cloud.ready,
             "cooler_note": "managed by Google Home",
+            "cooler_inferred": self.cooler_inferred,
+            "fan_cap": self.thr.fan_cap,
+            "thermostat": ({"target": self.thermostat["target"],
+                          "minutes_left": max(0, (self.thermostat["expires"] - time.monotonic()) / 60)}
+                         if self.thermostat else None),
             "fired_rules": self.fired_rules,
             "rules": [r.to_dict() for r in self.rule_store.rules],
             "history": list(self.history),

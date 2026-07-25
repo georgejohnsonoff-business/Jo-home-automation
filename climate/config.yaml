@@ -5,28 +5,36 @@
 # With no .env the whole thing runs in SIMULATION mode.
 # =============================================================================
 
-poll_seconds: 30
-min_dwell_seconds: 600         # anti-flap: min time in a mode before it changes
+poll_seconds: 10               # faster ambient reaction — nothing should sit buffered
+min_dwell_seconds: 0           # zero hold — every tick reacts immediately, no buffering at all
 cooler_max_runtime_min: 180    # dry-tank guard (no water sensor)
 sensor_stale_seconds: 900      # no fresh reading this long -> failsafe
 
 thresholds:
-  cooler_on_hi: 27.0
-  cooler_off_hi: 25.0
-  hot_hi: 30.0
-  comfort_lo: 24.0
-  heater_on_t: 20.0
-  heater_off_t: 23.0
+  cooler_on_hi: 27.5    # raw-temp "raw heat" trigger — matches the live Google Home script exactly
+  cooler_off_hi: 26.5   # ... and OFF (Google Home's own hysteresis gap)
+  muggy_early_temp: 26.8  # "feels hotter than it is" early trigger — see muggy_early_rh
+  muggy_early_rh: 65.0    # ... humidity threshold for that same early trigger
+  hot_hi: 29.0
+  comfort_lo: 27.2        # fan floor — off below this, gradual ramp from here through cooler_on_hi and beyond
+  heater_on_t: 26.5        # bang-bang, no gap — instant full heat below this (independent of the fan floor)
+  heater_off_t: 26.5       # ... same value: no hysteresis, matches "don't care about switching"
   spread_excellent: 9.0
   spread_good: 7.0
   spread_muggy: 5.0
   rh_muggy: 70.0
   rh_hardlock: 75.0
+  fan_cap: 5   # no cap — full 1-5 range always available
 
 night:
   start: "23:00"
   end: "06:00"
   fan_cap: 3
+
+cooldown:                     # away at office — rest fan/heater/LED regardless of climate
+  weekdays: [0, 1, 2, 3]       # Mon-Thu (0=Monday ... 6=Sunday)
+  start: "11:00"
+  end: "17:30"
 
 manual_override_minutes: 30   # how long a dashboard manual command blocks automation
 
@@ -40,10 +48,10 @@ learning:
     step: 0.2                   # max °C nudge per threshold per day
     min_samples: 20              # need at least this many logged ticks before tuning
     bounds:                     # [min, max] — thresholds never drift outside these
-      cooler_on_hi: [25.0, 29.0]
-      cooler_off_hi: [23.0, 27.0]
-      heater_on_t: [17.0, 22.0]
-      heater_off_t: [21.0, 25.0]
+      cooler_on_hi: [27.0, 28.5]
+      cooler_off_hi: [26.0, 27.5]
+      heater_on_t: [26.5, 27.5]
+      heater_off_t: [26.5, 27.5]
       spread_good: [5.0, 9.0]
 
 # --- power-outage detection: watch these Tuya devices' online/offline status
@@ -83,7 +91,7 @@ devices:
     #             on/off every 30s) — wired in for a future manual control.
     code_power: "a324b3114e0290024e0290024e0290024e0290024e024e024e0290024e024e024e024e024e028c064e028c064e028c064e028c0690028c064e028c064e028c0690028c064e024e024e024e024e0290024e024e024e0290024e0290024e028c0690024e024e028c064e028c064e028c064e028c0690028c064e028c064e024e024e028c064e02569aa324c90890025c77a324c9084e02d0fb"
     code_increase: "af249b11540254025402540254025402540254025402540254025402540254025402540254027f0654027f0654027f0654027f0654027f0654027f0654027f0654027f0654027f06540254025402540254027f06540254025402540254025402540254025402540254027f0654027f065402540254027f0654027f0654027f0654027f0654022c9aaf249e085402d0fb"
-    code_decrease: "922496114d024d024d024d024d024d024d024d024d024d024d024d024d024d024d024d024d0291064d0291064d0291064d0291064d0291064d0291064d0291064d0291064d0291064d0291064d0291064d024d024d024d024d024d024d024d024d024d024d024d024d024d024d024d024d0291064d0291064d0291064d0291064d0291064d02439a9224ea084d02d0fb"
+    code_decrease: "aa248c1155025502550255025502550255025502550255025502550255025502550255025502800655028006550280065502800655028006550280065502800655028006550280065502800655028006550255025502550255025502550255025502550255025502550255025502550255028006550280065502800655028006550280065502999aaa24ca0855021578aa24ca0855021578aa24ca085502d0fb"
     code_fan: "b624931158025802580258025802580258025802580258025802580258025802580258025802720658027206580272065802720658027206580272065802720658027206580258025802580258027206580272065802580258025802580258025802580258027206580272065802580258025802580272065802720658027206580272065802389ab624ca0858028a77b624ca085802d0fb"
     code_timer: "af24b411560256025602560256025602560256025602560256025602560256025602560256027106560271065602710656027106560271065602710656027106560271065602560256027106560271065602710656027106560256025602710656025602560271065602560256025602560256025602560256027106560256025602710656024e9aaf24dc0856028777af24dc085602d0fb"
     # NOTE: no fixed thermostat_target — the heater's own internal sensor sits
