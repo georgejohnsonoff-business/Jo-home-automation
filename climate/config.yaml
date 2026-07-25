@@ -1,0 +1,64 @@
+# =============================================================================
+# Climate Brain — configuration  (George's "Home automation" project, India DC)
+#
+# Device credentials live in .env (TUYA_ACCESS_ID / TUYA_ACCESS_SECRET).
+# With no .env the whole thing runs in SIMULATION mode.
+# =============================================================================
+
+poll_seconds: 30
+min_dwell_seconds: 600         # anti-flap: min time in a mode before it changes
+cooler_max_runtime_min: 180    # dry-tank guard (no water sensor)
+sensor_stale_seconds: 900      # no fresh reading this long -> failsafe
+
+thresholds:
+  cooler_on_hi: 27.0
+  cooler_off_hi: 25.0
+  hot_hi: 30.0
+  comfort_lo: 24.0
+  heater_on_t: 20.0
+  heater_off_t: 23.0
+  spread_excellent: 9.0
+  spread_good: 7.0
+  spread_muggy: 5.0
+  rh_muggy: 70.0
+  rh_hardlock: 75.0
+
+night:
+  start: "23:00"
+  end: "06:00"
+  fan_cap: 3
+
+# --- Tuya Cloud devices (discovered from the IoT platform) -------------------
+devices:
+  sensor:
+    id: "d7802e582e33449a8bx6ao"
+    code_temp: "va_temperature"
+    temp_divisor: 10            # raw 260 -> 26.0 C
+    code_humidity: "va_humidity"
+    humidity_divisor: 1         # raw 64 -> 64 %
+
+  fan:
+    id: "d73d1055a9e5f5af92yods"
+    code_power: "switch_fan"      # bool
+    code_speed: "fan_speed_enum"  # string "1".."5"
+    speed_values: ["1", "2", "3", "4", "5"]   # brain speed 1..5 -> these
+
+  ir_hub:
+    id: "d7b8d9fc6b8198fe09yb8f"
+
+  heater:                        # learned IR remote fired via ir_hub
+    remote_id: "d7c92742587535876dvviu"
+    # "Heater power on and off" is a single TOGGLE code — same for on & off;
+    # devices.Heater tracks state so it only fires on a real transition.
+    code_on: "a324b3114e0290024e0290024e0290024e0290024e024e024e0290024e024e024e024e024e028c064e028c064e028c064e028c0690028c064e028c064e028c0690028c064e024e024e024e024e0290024e024e024e0290024e0290024e028c0690024e024e028c064e028c064e028c064e028c0690028c064e028c064e024e024e028c064e02569aa324c90890025c77a324c9084e02d0fb"
+    code_off: "a324b3114e0290024e0290024e0290024e0290024e024e024e0290024e024e024e024e024e028c064e028c064e028c064e028c0690028c064e028c064e028c0690028c064e024e024e024e024e0290024e024e024e0290024e0290024e028c0690024e024e028c064e028c064e028c064e028c0690028c064e028c064e024e024e028c064e02569aa324c90890025c77a324c9084e02d0fb"
+
+  led:
+    remote_id: "d76b088dfd8d77ca2fjryq"
+  projector:
+    remote_id: "d7377c638a0f70a6f5fikr"
+
+# --- Cooler: owned by Google Home (Qubo has no API), NOT this app ------------
+# The app leaves the cooler alone; the corrected Google Home script runs it.
+cooler:
+  managed_by: google_home

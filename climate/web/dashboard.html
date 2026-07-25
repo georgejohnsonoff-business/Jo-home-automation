@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0e1418">
+<title>Climate Brain</title>
+<style>
+  :root{--bg:#0e1418;--panel:#151d23;--ink:#e8edf0;--muted:#8a97a2;--hair:#26323a;
+    --cool:#38bdf8;--coolbg:#0f2733;--heat:#f5a524;--heatbg:#2c220f;--comf:#3fbfa0;--comfbg:#0f2a25;
+    --warn:#f59e6b;--warnbg:#2c1a10;--gh:#c98bdb;--ghbg:#241528;--track:#26323a;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .wrap{max-width:760px;margin:0 auto;padding:22px 16px 48px}
+  .top{display:flex;justify-content:space-between;align-items:center}
+  .eyebrow{font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--cool)}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+  h1{font-size:24px;margin:2px 0 16px;letter-spacing:-.02em}
+  h2{font-size:13px;font-family:ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:30px 0 12px;font-weight:600}
+  .mode{border-radius:14px;padding:16px 18px;border:1px solid var(--hair);margin-bottom:12px;transition:.25s}
+  .mode .ml{font-family:ui-monospace,monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;opacity:.8}
+  .mode .mn{font-size:26px;font-weight:770;letter-spacing:-.02em;margin:3px 0 5px}
+  .mode .mr{font-size:13px;line-height:1.5}
+  .m-cool{background:var(--coolbg);border-color:color-mix(in srgb,var(--cool) 35%,var(--hair))} .m-cool .mn{color:var(--cool)}
+  .m-heat{background:var(--heatbg);border-color:color-mix(in srgb,var(--heat) 35%,var(--hair))} .m-heat .mn{color:var(--heat)}
+  .m-comf{background:var(--comfbg);border-color:color-mix(in srgb,var(--comf) 35%,var(--hair))} .m-comf .mn{color:var(--comf)}
+  .m-warn{background:var(--warnbg);border-color:color-mix(in srgb,var(--warn) 40%,var(--hair))} .m-warn .mn{color:var(--warn)}
+  .reads{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px}
+  .read{background:var(--panel);border:1px solid var(--hair);border-radius:11px;padding:11px}
+  .read .k{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .read .v{font-family:ui-monospace,monospace;font-size:21px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
+  .read .t{font-size:11px;color:var(--muted);margin-top:2px}
+  .dev{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .tile{background:var(--panel);border:1px solid var(--hair);border-radius:11px;padding:12px}
+  .tile .tn{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .tile .ts{font-size:18px;font-weight:720;margin-top:5px}
+  .tile.on-cool{border-color:var(--cool);box-shadow:0 0 0 1px var(--cool)} .tile.on-cool .ts{color:var(--cool)}
+  .tile.on-heat{border-color:var(--heat);box-shadow:0 0 0 1px var(--heat)} .tile.on-heat .ts{color:var(--heat)}
+  .tile.on-comf{border-color:var(--comf);box-shadow:0 0 0 1px var(--comf)} .tile.on-comf .ts{color:var(--comf)}
+  .tile.off .ts{color:var(--muted);opacity:.55}
+  .bars{display:flex;gap:3px;margin-top:8px}.bars span{flex:1;height:15px;border-radius:2px;background:var(--track)}.bars span.lit{background:var(--comf)}
+
+  /* automations */
+  .chat{background:var(--panel);border:1px solid var(--hair);border-radius:13px;padding:14px}
+  .chat textarea{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--hair);border-radius:9px;
+    padding:11px 12px;font:inherit;font-size:14px;resize:vertical;min-height:44px;outline:none}
+  .chat textarea:focus{border-color:var(--cool)}
+  .row{display:flex;gap:8px;align-items:center;margin-top:9px}
+  .hint{font-size:12px;color:var(--muted);flex:1}
+  button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--hair);background:var(--panel);color:var(--ink);padding:7px 13px;font-size:13px}
+  button.primary{background:var(--cool);border-color:var(--cool);color:#06222f;font-weight:650}
+  button:disabled{opacity:.5;cursor:default}
+  button.mini{padding:4px 9px;font-size:12px}
+  .note{margin-top:10px;font-size:13px;line-height:1.5;color:var(--ink);background:var(--bg);border-left:2px solid var(--cool);border-radius:0 8px 8px 0;padding:9px 11px}
+  .note.err{border-color:var(--warn);color:var(--warn)}
+  pre{background:#0a1014;color:#c9d6de;border:1px solid var(--hair);border-radius:9px;padding:12px;overflow-x:auto;font-family:ui-monospace,monospace;font-size:12px;margin:9px 0 0;white-space:pre}
+  .rule{background:var(--panel);border:1px solid var(--hair);border-radius:11px;padding:12px 14px;margin-bottom:9px}
+  .rule.dis{opacity:.55}
+  .rhead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .rname{font-weight:650;font-size:14.5px}
+  .rsrc{font-size:12.5px;color:var(--muted);margin-top:2px;font-style:italic}
+  .pill{display:inline-block;font-family:ui-monospace,monospace;font-size:10px;font-weight:650;padding:2px 7px;border-radius:99px;letter-spacing:.04em;text-transform:uppercase}
+  .p-app{background:var(--coolbg);color:var(--cool)} .p-gh{background:var(--ghbg);color:var(--gh)}
+  .ractions{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
+  .empty{color:var(--muted);font-size:13px;padding:6px 2px}
+  .foot{margin-top:22px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="eyebrow">Climate Brain</span>
+    <span class="mono" style="font-size:11px;color:var(--muted)"><span class="dot" id="live"></span><span id="src">—</span></span>
+  </div>
+  <h1>Room control</h1>
+
+  <div id="alerts"></div>
+  <div class="mode m-comf" id="modeCard">
+    <div class="ml">Active mode</div><div class="mn" id="modeName">connecting…</div>
+    <div class="mr" id="modeReason">Reading sensor…</div>
+  </div>
+  <div class="reads">
+    <div class="read"><div class="k">Temp</div><div class="v" id="temp">—</div><div class="t">actual</div></div>
+    <div class="read"><div class="k">Humidity</div><div class="v" id="rh">—</div><div class="t">relative</div></div>
+    <div class="read"><div class="k">Feels like</div><div class="v" id="hi">—</div><div class="t" id="spread">heat index</div></div>
+  </div>
+  <div class="dev">
+    <div class="tile off" id="tC"><div class="tn">Cooler · GH</div><div class="ts" id="sC">—</div></div>
+    <div class="tile off" id="tF"><div class="tn">Fan</div><div class="ts" id="sF">—</div>
+      <div class="bars" id="fb"><span></span><span></span><span></span><span></span><span></span></div></div>
+    <div class="tile off" id="tH"><div class="tn">Heater</div><div class="ts" id="sH">—</div></div>
+  </div>
+
+  <h2>Automations · talk to add one</h2>
+  <div class="chat">
+    <textarea id="chatbox" placeholder="e.g. When it's hot and dry, run the cooler and put the fan on high. Or: make coffee at 7am on weekdays. Or: movie mode — projector on, LED on, fan low."></textarea>
+    <div class="row">
+      <span class="hint" id="chatHint">Plain English → a live rule (fan/heater/LED/projector) or a Google Home script (cooler/coffee/lights).</span>
+      <button class="primary" id="sendBtn" onclick="send()">Add</button>
+    </div>
+    <div id="chatOut"></div>
+  </div>
+
+  <div id="rules" style="margin-top:14px"></div>
+
+  <div class="foot" id="foot">—</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const clsFor=m=>m==='COLD'?'m-heat':m==='MUGGY'?'m-warn':/COOL$|COMFORT/.test(m)?'m-comf':'m-cool';
+const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+async function poll(){
+  try{ render(await (await fetch('/api/state')).json()); }
+  catch(e){ $('modeReason').textContent='Service unreachable — retrying…'; }
+}
+function render(s){
+  $('live').style.background=s.live?'var(--comf)':'var(--heat)';
+  $('src').textContent=(s.live?'live · Tuya Cloud':'simulated')+' · cooler: Google Home';
+  $('alerts').innerHTML=(s.alerts||[]).map(a=>`<div class="note err">⚠ ${esc(a)}</div>`).join('');
+  const d=s.decision, r=s.reading;
+  if(d&&r){
+    $('modeCard').className='mode '+clsFor(d.mode);
+    $('modeName').textContent=d.mode; $('modeReason').textContent=d.reason;
+    $('temp').textContent=r.temp.toFixed(1)+'°'; $('rh').textContent=Math.round(r.rh)+'%';
+    $('hi').textContent=d.heat_index.toFixed(1)+'°'; $('spread').textContent='spread '+d.spread.toFixed(1)+'°';
+    tile('tC','sC',d.cooler,d.cooler?'ON':'OFF','on-cool');
+    tile('tH','sH',d.heater,d.heater?'ON':'OFF','on-heat');
+    tile('tF','sF',d.fan>0,d.fan>0?('SPD '+d.fan):'OFF','on-comf');
+    [...$('fb').children].forEach((b,i)=>b.classList.toggle('lit',i<d.fan));
+  }
+  renderRules(s.rules||[], s.fired_rules||[]);
+  $('foot').textContent=new Date().toLocaleTimeString()+(s.fired_rules?.length?'  ·  active: '+s.fired_rules.join(', '):'');
+}
+function tile(t,st,on,label,cls){$(t).className='tile '+(on?cls:'off');$(st).textContent=label;}
+
+function renderRules(rules, fired){
+  if(!rules.length){ $('rules').innerHTML='<div class="empty">No automations yet. Describe one above.</div>'; return; }
+  $('rules').innerHTML=rules.map(r=>{
+    const gh=r.target==='google_home';
+    const isFired=fired.includes(r.name);
+    const actions = gh
+      ? `<button class="mini" onclick='copyText(${JSON.stringify(r.gh_yaml)})'>Copy Google Home script</button>`
+      : (r.when==='manual'||!r.when ? `<button class="mini" onclick="runRule('${r.id}')">Run now</button>` : '');
+    const sub = gh ? esc(r.gh_summary||'Google Home automation')
+                   : (r.when&&r.when!=='manual' ? '<span class="mono">when '+esc(r.when)+'</span>' : 'manual scene');
+    return `<div class="rule ${r.enabled?'':'dis'}">
+      <div class="rhead">
+        <div><div class="rname">${esc(r.name)} ${isFired?'<span style="color:var(--comf)">●</span>':''}</div>
+        <div class="rsrc">"${esc(r.source_text)}"</div></div>
+        <span class="pill ${gh?'p-gh':'p-app'}">${gh?'Google Home':'App'}</span>
+      </div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:7px">${sub}</div>
+      <div class="ractions">
+        ${actions}
+        <button class="mini" onclick="toggleRule('${r.id}',${!r.enabled})">${r.enabled?'Disable':'Enable'}</button>
+        <button class="mini" onclick="delRule('${r.id}')">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function send(){
+  const t=$('chatbox').value.trim(); if(!t) return;
+  $('sendBtn').disabled=true; $('chatHint').textContent='Thinking…';
+  $('chatOut').innerHTML='';
+  try{
+    const res=await (await fetch('/api/rules',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t})})).json();
+    if(!res.ok){ $('chatOut').innerHTML=`<div class="note err">${esc(res.note)}</div>`; }
+    else{
+      let html=`<div class="note">${esc(res.note)}</div>`;
+      if(res.rule.target==='google_home'){
+        html+=`<pre>${esc(res.rule.gh_yaml)}</pre>
+          <div class="row"><span class="hint">Paste this into Google Home → Automations → + → script editor, then Save.</span>
+          <button class="mini" onclick='copyText(${JSON.stringify(res.rule.gh_yaml)})'>Copy</button></div>`;
+      }
+      $('chatOut').innerHTML=html; $('chatbox').value='';
+    }
+  }catch(e){ $('chatOut').innerHTML=`<div class="note err">${esc(e.message)}</div>`; }
+  $('sendBtn').disabled=false; $('chatHint').textContent='Plain English → a live rule or a Google Home script.';
+  poll();
+}
+async function toggleRule(id,en){ await fetch(`/api/rules/${id}/toggle`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:en})}); poll(); }
+async function delRule(id){ await fetch(`/api/rules/${id}`,{method:'DELETE'}); poll(); }
+async function runRule(id){ await fetch(`/api/rules/${id}/run`,{method:'POST'}); }
+function copyText(t){ navigator.clipboard.writeText(t); }
+
+$('chatbox').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)) send(); });
+poll(); setInterval(poll,5000);
+</script>
+</body>
+</html>
