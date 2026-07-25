@@ -28,6 +28,28 @@ night:
   end: "06:00"
   fan_cap: 3
 
+manual_override_minutes: 30   # how long a dashboard manual command blocks automation
+
+# --- self-learning: real-time escalation + once-daily bounded threshold tuning
+learning:
+  enabled: true
+  escalate_after_min: 20        # if a mode/fan combo underperforms this long, escalate
+  min_cool_rate_c_per_min: 0.03 # below this, cooling is "not working" -> escalate
+  autotune:
+    enabled: true
+    step: 0.2                   # max °C nudge per threshold per day
+    min_samples: 20              # need at least this many logged ticks before tuning
+    bounds:                     # [min, max] — thresholds never drift outside these
+      cooler_on_hi: [25.0, 29.0]
+      cooler_off_hi: [23.0, 27.0]
+      heater_on_t: [17.0, 22.0]
+      heater_off_t: [21.0, 25.0]
+      spread_good: [5.0, 9.0]
+
+# --- power-outage detection: watch these Tuya devices' online/offline status
+outage_watch:
+  device_ids: ["d73d1055a9e5f5af92yods", "d7b8d9fc6b8198fe09yb8f"]  # fan + ir hub
+
 # --- Tuya Cloud devices (discovered from the IoT platform) -------------------
 devices:
   sensor:
@@ -55,8 +77,10 @@ devices:
 
   led:
     remote_id: "d76b088dfd8d77ca2fjryq"
-  projector:
+
+  projector:                      # single power-toggle button, same risk as heater
     remote_id: "d7377c638a0f70a6f5fikr"
+    code_power: "1623b31135023502350235023502350235023502350235023502350235023502350235023502ae063502ae063502ae063502ae063502ae063502ae063502ae063502ae0635023502350235023502ae06350235023502ae063502350235023502350235023502ae063502ae06350235023502ae06350235023502ae063502ae063502ae0635022c9c1623e8083502d0fb"
 
 # --- Cooler: owned by Google Home (Qubo has no API), NOT this app ------------
 # The app leaves the cooler alone; the corrected Google Home script runs it.

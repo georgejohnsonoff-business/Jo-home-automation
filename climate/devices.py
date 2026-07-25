@@ -51,27 +51,87 @@ class Fan:
             {"code": self.cfg["code_speed"], "value": value},
         ])
 
+    def force_resend(self):
+        """Drop the cached speed so the next set_speed() always re-issues the
+        command — used after a detected power outage, since the physical fan
+        may have reset to a different speed than we last cached."""
+        self._speed = -1
 
-class Heater:
-    """Learned IR remote fired through the Smart IR hub."""
-    def __init__(self, cloud: TuyaCloud, ir_hub_id: str, cfg: dict):
+
+class ToggleIR:
+    """
+    A single-button IR toggle (heater power, projector power). These remotes
+    have exactly ONE code that flips whatever state the device is currently
+    in — unlike the LED strip, which has distinct on/off codes. That makes
+    them desync-prone: if our tracked `_on` drifts from physical reality
+    (e.g. a power outage reset the device to a known default), blindly
+    calling set() would fire the toggle and land on the WRONG state.
+
+    force_state() lets the caller assert "we know it's actually X now"
+    (e.g. after an outage, these always come back off) without sending a
+    command — then a normal set() call fires the toggle only if actually needed.
+    """
+    def __init__(self, cloud: TuyaCloud, ir_hub_id: str, remote_id: str, code: str,
+                assumed_initial: bool = False):
         self.cloud = cloud
         self.ir = ir_hub_id
-        self.remote = cfg["remote_id"]
-        self.code_on = cfg.get("code_on", "")
-        self.code_off = cfg.get("code_off", "")
-        # Heater IR is a single power TOGGLE. Assume it starts OFF so the first
-        # decide()=off never fires a spurious toggle that would switch it ON.
-        self._on = False
+        self.remote = remote_id
+        self.code = code
+        self._on = assumed_initial
 
     def set(self, on: bool):
         if on == self._on:
             return
-        code = self.code_on if on else self.code_off
-        if not code:
-            log.warning("Heater IR code for %s not set in config — skipping.",
-                        "on" if on else "off")
+        if not self.code:
+            log.warning("Toggle IR code not set for remote %s — skipping.", self.remote)
             self._on = on
             return
-        self.cloud.ir_send_learned(self.ir, self.remote, code)
+        self.cloud.ir_send_learned(self.ir, self.remote, self.code)
+        self._on = on
+
+    def force_state(self, on: bool):
+        """Assert the tracked state WITHOUT sending a command — use when we
+        know the physical device reset to a known default (e.g. power loss)."""
+        self._on = on
+
+
+class Heater(ToggleIR):
+    def __init__(self, cloud: TuyaCloud, ir_hub_id: str, cfg: dict):
+        # Heater's config historically carries code_on/code_off, both equal
+        # (it's a toggle) — accept either key name.
+        code = cfg.get("code_on") or cfg.get("code_power", "")
+        super().__init__(cloud, ir_hub_id, cfg["remote_id"], code, assumed_initial=False)
+
+
+class Projector(ToggleIR):
+    def __init__(self, cloud: TuyaCloud, ir_hub_id: str, cfg: dict):
+        super().__init__(cloud, ir_hub_id, cfg["remote_id"], cfg.get("code_power", ""),
+                        assumed_initial=False)
+
+
+class LED:
+    """LED strip has TRUE distinct on/off IR codes (not a toggle) — always
+    safe to resend either command regardless of assumed state. Still tracks
+    `_on` so the rest of the app has one consistent .set(bool) interface."""
+    def __init__(self, cloud: TuyaCloud, ir_hub_id: str, remote_id: str,
+                code_on: str, code_off: str):
+        self.cloud = cloud
+        self.ir = ir_hub_id
+        self.remote = remote_id
+        self.code_on = code_on
+        self.code_off = code_off
+        self._on = False
+
+    def set(self, on: bool, force: bool = False):
+        """force=True always resends — needed after power restore, since the
+        LED strip's own hardware auto-boots into a flashing demo mode that
+        looks 'on' even if we last wanted it off."""
+        if on == self._on and not force:
+            return
+        code = self.code_on if on else self.code_off
+        if code:
+            self.cloud.ir_send_learned(self.ir, self.remote, code)
+        self._on = on
+
+    def force_state(self, on: bool):
         self._on = on

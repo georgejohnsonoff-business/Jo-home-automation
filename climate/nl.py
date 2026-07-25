@@ -1,25 +1,27 @@
 """
-nl.py — natural language -> structured automation, via the Claude API.
+nl.py — natural language -> structured automation, via the Groq API.
 
 Runs only when you CREATE a rule (occasional + cheap), never in the control
-loop. Uses claude-opus-4-8 with structured output so the result validates
-against our schema — no brittle parsing.
+loop. Uses openai/gpt-oss-120b on Groq (OpenAI-compatible endpoint) with JSON
+mode + Pydantic validation — no brittle string parsing.
 
 Routing is the model's job:
   * fan / heater / led / projector  -> target "app"  (runs in our loop)
   * cooler / coffee / Havells bulb  -> target "google_home" (generates a script
     to paste into Google Home, because the app can't reach those)
 
-Needs ANTHROPIC_API_KEY in .env.
+Needs GROQ_API_KEY in .env.
 """
 from __future__ import annotations
+import json
 from typing import List, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .rules import Rule, Action as RuleAction
 
-MODEL = "claude-opus-4-8"
+MODEL = "openai/gpt-oss-120b"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 
 class Action(BaseModel):
@@ -95,27 +97,52 @@ The cooler only helps when air is hot AND dry. Turn it ON when hot and spread is
 ## Rules
 - Choose sensible thresholds if the user is vague, and state them in `note`.
 - Exactly one rule per request. Prefer the simplest automation that satisfies the request.
-- `note` is a short friendly confirmation of what you built and any assumption."""
+- `note` is a short friendly confirmation of what you built and any assumption.
+
+## Output format
+Respond with ONLY a single JSON object, no markdown fences, no commentary, matching exactly this shape:
+{
+  "target": "app" | "google_home",
+  "name": string,
+  "when": string,
+  "actions": [{"device": "fan"|"heater"|"led"|"projector", "command": "set_speed"|"on"|"off"|"power", "value": string}],
+  "gh_yaml": string,
+  "gh_summary": string,
+  "note": string
+}"""
 
 
 def translate(text: str, api_key: str | None = None) -> tuple[Rule | None, str]:
     """Return (Rule, note). Rule is None with an error note if the API isn't set up."""
     try:
-        import anthropic
+        from groq import Groq
     except ImportError:
-        return None, "anthropic SDK not installed (pip install anthropic)."
+        return None, "groq SDK not installed (pip install groq)."
+
+    import os
+    key = api_key or os.getenv("GROQ_API_KEY")
+    if not key:
+        return None, "GROQ_API_KEY not set in .env."
+
     try:
-        client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
-        resp = client.messages.parse(
+        client = Groq(api_key=key)
+        resp = client.chat.completions.create(
             model=MODEL,
-            max_tokens=4000,
-            system=SYSTEM,
-            messages=[{"role": "user", "content": text}],
-            output_format=ParsedRule,
+            messages=[
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": text},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.2,
         )
-        p: ParsedRule = resp.parsed_output
+        raw = resp.choices[0].message.content
     except Exception as e:
-        return None, f"Couldn't reach Claude: {e}"
+        return None, f"Couldn't reach Groq: {e}"
+
+    try:
+        p = ParsedRule.model_validate(json.loads(raw))
+    except (json.JSONDecodeError, ValidationError) as e:
+        return None, f"Model returned something I couldn't parse: {e}"
 
     rule = Rule(
         id="",                                  # assigned by the store

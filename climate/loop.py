@@ -1,13 +1,16 @@
 """
 loop.py — the Controller. sensor -> brain -> actuators, plus the stateful
 safety layer (hysteresis via brain, minimum dwell, sensor-stale failsafe,
-night fan cap).
+night fan cap), manual dashboard overrides, self-learning, and power-outage
+recovery.
 
-Scope note: this app owns the FAN and HEATER (Tuya Cloud). The COOLER is a
-Qubo plug with no API — it's run by the corrected Google Home script. The brain
-still computes a cooler recommendation; we display it but don't actuate it.
+Scope note: this app owns the FAN, HEATER, LED, PROJECTOR (Tuya Cloud). The
+COOLER is a Qubo plug with no API — it's run by the corrected Google Home
+script. The brain still computes a cooler recommendation; we display it but
+don't actuate it.
 """
 from __future__ import annotations
+import json
 import logging
 import math
 import time
@@ -17,17 +20,19 @@ from datetime import datetime, time as dtime
 
 from .brain import Decision, Thresholds, decide, dew_point, heat_index
 from .cloud import TuyaCloud
-from .devices import Sensor, Fan, Heater
+from .devices import Sensor, Fan, Heater, Projector, LED
+from .learn import Learner, infer_cooler_state
 from .rules import RuleStore, run_actions, safe_eval
+from .store import Store
 
 log = logging.getLogger("loop")
 
 # maps (device, command) -> the learned IR key_name to fire (matched at boot)
 _SCENE_KEYS = {
     ("led", "on"): "led strip power on", ("led", "off"): "led strip power off",
-    ("projector", "power"): "power", ("projector", "on"): "power",
-    ("projector", "off"): "power",
 }
+
+DESIRED_KEY = "desired_state"
 
 
 def _hhmm(s: str) -> dtime:
@@ -44,11 +49,20 @@ class Controller:
         self.cfg = cfg
         self.thr = Thresholds.from_dict(cfg.get("thresholds"))
         self.cloud = TuyaCloud()
+        self.db = Store()
+        self.learner = Learner(self.db, cfg)
+
+        # persisted threshold overrides (from earlier auto-tune runs) win over config
+        for name, value in self.db.get_thresholds().items():
+            if hasattr(self.thr, name):
+                setattr(self.thr, name, value)
 
         d = cfg["devices"]
         self.sensor = Sensor(self.cloud, d["sensor"])
         self.fan = Fan(self.cloud, d["fan"])
         self.heater = Heater(self.cloud, d["ir_hub"]["id"], d["heater"])
+        self.projector = Projector(self.cloud, d["ir_hub"]["id"], d["projector"])
+        self.led = LED(self.cloud, d["ir_hub"]["id"], d["led"]["remote_id"], "", "")
 
         self.decision: Decision | None = None
         self.mode_since = time.monotonic()
@@ -56,36 +70,59 @@ class Controller:
         self.reading: tuple[float, float] | None = None
         self.alerts: list[str] = []
         self.fired_rules: list[str] = []
+        self.escalation_notes: list[str] = []
         self.history = deque(maxlen=240)
 
-        self.store = RuleStore()
+        self.rule_store = RuleStore()
         self._ir_codes: dict[str, dict[str, str]] = {}   # device -> {command: code}
         self._load_ir_scenes()
 
-    # -- IR scenes (LED / projector) — fetched fresh so re-learns are picked up
+        # -- last-intended state, persisted so it survives BOTH a power
+        # outage (device forgets) and an app restart (in-memory would forget)
+        self.desired: dict = json.loads(self.db.kv_get(DESIRED_KEY, "{}") or "{}")
+        self.desired.setdefault("fan", 0)
+        self.desired.setdefault("heater", False)
+        self.desired.setdefault("led", False)
+        self.desired.setdefault("projector", False)
+
+        # -- manual dashboard overrides: {device: {"value":..., "expires": monotonic}}
+        self.manual: dict[str, dict] = {}
+
+        # -- power outage watch
+        self._outage_ids = cfg.get("outage_watch", {}).get("device_ids", [])
+        self._all_online_prev: bool | None = None
+
+    # -- IR scenes (LED) — fetched fresh so re-learns are picked up -----------
     def _load_ir_scenes(self):
         if not self.cloud.ready:
             return
         ir = self.cfg["devices"]["ir_hub"]["id"]
-        for dev in ("led", "projector"):
-            remote = self.cfg["devices"][dev]["remote_id"]
-            by_name = {k.get("key_name", "").strip().lower(): k.get("code")
-                       for k in self.cloud.ir_learned_keys(ir, remote)}
-            self._ir_codes[dev] = {}
-            for (d, cmd), keyname in _SCENE_KEYS.items():
-                if d == dev and keyname in by_name:
-                    self._ir_codes[dev][cmd] = by_name[keyname]
+        remote = self.cfg["devices"]["led"]["remote_id"]
+        by_name = {k.get("key_name", "").strip().lower(): k.get("code")
+                   for k in self.cloud.ir_learned_keys(ir, remote)}
+        self.led.code_on = by_name.get(_SCENE_KEYS[("led", "on")], "")
+        self.led.code_off = by_name.get(_SCENE_KEYS[("led", "off")], "")
+
+    def _persist_desired(self):
+        self.db.kv_set(DESIRED_KEY, json.dumps(self.desired))
 
     def ir_scene(self, device: str, command: str):
-        code = self._ir_codes.get(device, {}).get(command)
-        ir = self.cfg["devices"]["ir_hub"]["id"]
-        remote = self.cfg["devices"][device]["remote_id"]
-        if code:
-            self.cloud.ir_send_learned(ir, remote, code)
-        else:
-            log.info("[sim/no-code] IR %s %s", device, command)
+        """Callback used by rules.py's run_actions() for led/projector actions."""
+        if device == "led":
+            on = command != "off"
+            self.led.set(on)
+            self.desired["led"] = on
+        elif device == "projector":
+            if command == "off":
+                self.projector.set(False); self.desired["projector"] = False
+            elif command == "on":
+                self.projector.set(True); self.desired["projector"] = True
+            else:  # "power" — explicit single-button press: flip current
+                new = not self.projector._on
+                self.projector.set(new); self.desired["projector"] = new
+        self._persist_desired()
 
-    # -- readings -----------------------------------------------------------
+    # -- readings -------------------------------------------------------------
     def _read(self) -> tuple[float, float] | None:
         r = self.sensor.read()
         if r is None and not self.cloud.ready:
@@ -101,16 +138,104 @@ class Controller:
         rh = 55 - 20 * math.sin((h - 9) / 24 * 2 * math.pi)
         return round(temp, 1), round(max(20, min(90, rh)), 0)
 
+    # -- manual overrides -------------------------------------------------------
+    def _override_active(self, device: str) -> bool:
+        o = self.manual.get(device)
+        if not o:
+            return False
+        if time.monotonic() > o["expires"]:
+            del self.manual[device]
+            self.db.log_event("manual", f"{device} manual override expired")
+            return False
+        return True
+
+    def set_manual(self, device: str, on: bool | None = None, speed: int | None = None):
+        """Called by the dashboard's manual-control endpoint."""
+        minutes = self.cfg.get("manual_override_minutes", 30)
+        expires = time.monotonic() + minutes * 60
+        if device == "fan":
+            self.fan.force_resend()
+            self.fan.set_speed(speed or 0)
+            self.desired["fan"] = speed or 0
+            self.manual["fan"] = {"value": speed or 0, "expires": expires}
+        elif device == "heater":
+            self.heater.set(bool(on))
+            self.desired["heater"] = bool(on)
+            self.manual["heater"] = {"value": bool(on), "expires": expires}
+        elif device == "led":
+            self.led.set(bool(on), force=True)
+            self.desired["led"] = bool(on)
+            self.manual["led"] = {"value": bool(on), "expires": expires}
+        elif device == "projector":
+            self.projector.set(bool(on))
+            self.desired["projector"] = bool(on)
+            self.manual["projector"] = {"value": bool(on), "expires": expires}
+        else:
+            return False
+        self._persist_desired()
+        self.db.log_event("manual", f"{device} manually set to {speed if device=='fan' else on}",
+                          {"minutes": minutes})
+        return True
+
+    # -- power outage watch -----------------------------------------------------
+    def _check_outage(self):
+        if not self._outage_ids or not self.cloud.ready:
+            return
+        states = [self.cloud.device_online(i) for i in self._outage_ids]
+        known = [s for s in states if s is not None]
+        if not known:
+            return
+        all_online = all(known) and len(known) == len(self._outage_ids)
+
+        if self._all_online_prev is None:
+            self._all_online_prev = all_online
+            return
+
+        if not all_online and self._all_online_prev:
+            self.db.log_event("outage", "Power/connectivity loss suspected — watched devices offline.")
+            self.alerts.append("Power loss suspected (devices offline).")
+        elif all_online and not self._all_online_prev:
+            self._recover_from_outage()
+
+        self._all_online_prev = all_online
+
+    def _recover_from_outage(self):
+        """Devices reconnected. Heater and Projector are single-toggle remotes
+        that always come back OFF after real power loss — reset our tracked
+        state to match that known default, then replay the desired state so
+        anything that SHOULD be on gets turned back on. LED has real on/off
+        codes but auto-boots into an annoying flash-demo mode, so it's always
+        force-resent regardless. Fan is a real cloud device — just resync."""
+        self.db.log_event("outage", "Power restored — replaying last-known device states.",
+                          {"desired": self.desired})
+        self.alerts.append("Power restored — resyncing devices to prior state.")
+
+        self.heater.force_state(False)
+        self.heater.set(self.desired["heater"])
+
+        self.projector.force_state(False)
+        self.projector.set(self.desired["projector"])
+
+        self.led.set(self.desired["led"], force=True)
+
+        self.fan.force_resend()
+        self.fan.set_speed(self.desired["fan"])
+
     # -- one cycle ----------------------------------------------------------
     def tick(self):
         self.alerts = []
+        self.escalation_notes = []
         now = time.monotonic()
-        r = self._read()
 
+        self._check_outage()
+
+        r = self._read()
         if r is None or (now - self.last_good_read) > self.cfg["sensor_stale_seconds"]:
             self.alerts.append("Sensor stale — failsafe: fan + heater OFF.")
-            self.heater.set(False)
-            self.fan.set_speed(0)
+            if not self._override_active("heater"):
+                self.heater.set(False)
+            if not self._override_active("fan"):
+                self.fan.set_speed(0)
             return
 
         t_c, rh = r
@@ -122,15 +247,29 @@ class Controller:
             target = self.decision
         elif not self.decision or target.mode != self.decision.mode:
             self.mode_since = now
+            self.db.log_event("mode", f"Mode -> {target.mode}", {"reason": target.reason})
 
         # night fan cap
         n = self.cfg.get("night")
         if n and _in_window(datetime.now().time(), _hhmm(n["start"]), _hhmm(n["end"])):
             target.fan = min(target.fan, n["fan_cap"])
 
-        # actuate what THIS app owns: fan + heater (cooler is Google Home's)
-        self.fan.set_speed(target.fan)
-        self.heater.set(target.heater)
+        # self-learning: escalate fan if the current combo is underperforming
+        target.fan, notes = self.learner.escalate(target, target.fan)
+        if notes:
+            self.escalation_notes = notes
+            self.alerts.extend(notes)
+            for n_ in notes:
+                self.db.log_event("escalate", n_)
+
+        # actuate what THIS app owns: fan + heater — unless under manual override
+        if not self._override_active("fan"):
+            self.fan.set_speed(target.fan)
+            self.desired["fan"] = target.fan
+        if not self._override_active("heater"):
+            self.heater.set(target.heater)
+            self.desired["heater"] = target.heater
+        self._persist_desired()
         self.decision = target
 
         # user's conversational rules run AFTER the brain and override per-device
@@ -139,14 +278,22 @@ class Controller:
                "hour": datetime.now().hour, "minute": datetime.now().minute}
         self.fired_rules = []
         acts = {"fan": self.fan, "heater": self.heater, "ir_scene": self.ir_scene}
-        for rule in self.store.rules:
+        for rule in self.rule_store.rules:
             if rule.enabled and rule.target == "app" and not rule.manual:
                 try:
                     if safe_eval(rule.when, ctx):
                         run_actions(rule.actions, acts, ctx)
                         self.fired_rules.append(rule.name)
+                        self.db.log_event("rule", f"Rule fired: {rule.name}")
                 except Exception as e:
                     log.error("rule '%s' eval failed: %s", rule.name, e)
+
+        # self-learning: log this tick + once-daily bounded threshold tuning
+        cooler_inferred = infer_cooler_state(t_c, rh, self.thr)
+        self.learner.record_tick(t_c, rh, target.mode, target.fan, target.heater, cooler_inferred)
+        tuned = self.learner.daily_autotune(self.thr)
+        if tuned:
+            self.alerts.extend(f"Auto-tuned {t}" for t in tuned)
 
         self.history.append({"t": time.time(), "temp": t_c, "rh": rh,
                              "mode": target.mode, "hi": round(target.heat_index, 1)})
@@ -155,7 +302,7 @@ class Controller:
 
     def run_rule(self, rid: str) -> bool:
         """Fire a manual scene's actions once, now."""
-        rule = self.store.get(rid)
+        rule = self.rule_store.get(rid)
         if not rule or rule.target != "app":
             return False
         r = self.reading or (26, 60)
@@ -164,7 +311,15 @@ class Controller:
                "hour": datetime.now().hour, "minute": datetime.now().minute}
         run_actions(rule.actions, {"fan": self.fan, "heater": self.heater,
                                    "ir_scene": self.ir_scene}, ctx)
+        self.db.log_event("rule", f"Manual scene run: {rule.name}")
         return True
+
+    def _manual_remaining_min(self, device: str) -> float | None:
+        o = self.manual.get(device)
+        if not o:
+            return None
+        remaining = o["expires"] - time.monotonic()
+        return round(remaining / 60, 1) if remaining > 0 else None
 
     def snapshot(self) -> dict:
         return {
@@ -174,9 +329,17 @@ class Controller:
             "live": self.cloud.ready,
             "cooler_note": "managed by Google Home",
             "fired_rules": self.fired_rules,
-            "rules": [r.to_dict() for r in self.store.rules],
+            "rules": [r.to_dict() for r in self.rule_store.rules],
             "history": list(self.history),
+            "devices": {
+                name: {"value": self.desired[name], "manual_min_left": self._manual_remaining_min(name)}
+                for name in ("fan", "heater", "led", "projector")
+            },
+            "learned_rates": self.db.all_rates(),
         }
+
+    def activity(self, limit=100) -> list[dict]:
+        return self.db.recent_events(limit)
 
     def run_forever(self):
         log.info("Controller starting — poll %ss (cloud live=%s).",

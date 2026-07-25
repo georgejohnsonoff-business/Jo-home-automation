@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 from pathlib import Path
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
 
@@ -50,6 +51,28 @@ def force_tick():
     return controller.snapshot()
 
 
+# --- activity log ------------------------------------------------------------
+@app.get("/api/activity")
+def activity(limit: int = 100):
+    return {"events": controller.activity(limit)}
+
+
+# --- manual device control -----------------------------------------------------
+@app.post("/api/manual/{device}")
+def manual_control(
+    device: Literal["fan", "heater", "led", "projector"],
+    on: Optional[bool] = Body(None),
+    speed: Optional[int] = Body(None),
+):
+    """Directly set a device from the dashboard. Blocks automation for this
+    device for `manual_override_minutes` (config.yaml), then automation
+    resumes regardless of mode."""
+    ok = controller.set_manual(device, on=on, speed=speed)
+    if not ok:
+        return JSONResponse({"ok": False}, status_code=400)
+    return {"ok": True, "state": controller.snapshot()["devices"][device]}
+
+
 # --- conversational automations --------------------------------------------
 @app.post("/api/rules")
 def create_rule(text: str = Body(..., embed=True)):
@@ -58,14 +81,14 @@ def create_rule(text: str = Body(..., embed=True)):
     rule, note = translate(text)
     if rule is None:
         return JSONResponse({"ok": False, "note": note}, status_code=400)
-    rule.id = controller.store.next_id()
-    controller.store.add(rule)
+    rule.id = controller.rule_store.next_id()
+    controller.rule_store.add(rule)
     return {"ok": True, "note": note, "rule": rule.to_dict()}
 
 
 @app.post("/api/rules/{rid}/toggle")
 def toggle_rule(rid: str, enabled: bool = Body(..., embed=True)):
-    controller.store.toggle(rid, enabled)
+    controller.rule_store.toggle(rid, enabled)
     return {"ok": True}
 
 
@@ -76,5 +99,5 @@ def run_rule(rid: str):
 
 @app.delete("/api/rules/{rid}")
 def delete_rule(rid: str):
-    controller.store.delete(rid)
+    controller.rule_store.delete(rid)
     return {"ok": True}

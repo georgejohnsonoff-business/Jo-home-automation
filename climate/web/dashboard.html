@@ -8,7 +8,7 @@
 <style>
   :root{--bg:#0e1418;--panel:#151d23;--ink:#e8edf0;--muted:#8a97a2;--hair:#26323a;
     --cool:#38bdf8;--coolbg:#0f2733;--heat:#f5a524;--heatbg:#2c220f;--comf:#3fbfa0;--comfbg:#0f2a25;
-    --warn:#f59e6b;--warnbg:#2c1a10;--gh:#c98bdb;--ghbg:#241528;--track:#26323a;}
+    --warn:#f59e6b;--warnbg:#2c1a10;--gh:#c98bdb;--ghbg:#241528;--track:#26323a;--manual:#f5c542;}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
   .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
@@ -31,15 +31,22 @@
   .read .k{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
   .read .v{font-family:ui-monospace,monospace;font-size:21px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
   .read .t{font-size:11px;color:var(--muted);margin-top:2px}
-  .dev{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-  .tile{background:var(--panel);border:1px solid var(--hair);border-radius:11px;padding:12px}
+  .dev{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  @media(min-width:600px){.dev{grid-template-columns:repeat(3,1fr)}}
+  .tile{background:var(--panel);border:1px solid var(--hair);border-radius:11px;padding:12px;position:relative}
   .tile .tn{font-family:ui-monospace,monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
   .tile .ts{font-size:18px;font-weight:720;margin-top:5px}
   .tile.on-cool{border-color:var(--cool);box-shadow:0 0 0 1px var(--cool)} .tile.on-cool .ts{color:var(--cool)}
   .tile.on-heat{border-color:var(--heat);box-shadow:0 0 0 1px var(--heat)} .tile.on-heat .ts{color:var(--heat)}
   .tile.on-comf{border-color:var(--comf);box-shadow:0 0 0 1px var(--comf)} .tile.on-comf .ts{color:var(--comf)}
   .tile.off .ts{color:var(--muted);opacity:.55}
+  .tile.manual{border-color:var(--manual);box-shadow:0 0 0 1px var(--manual)}
+  .manual-badge{position:absolute;top:9px;right:10px;font-family:ui-monospace,monospace;font-size:9px;
+    color:var(--manual);letter-spacing:.05em}
   .bars{display:flex;gap:3px;margin-top:8px}.bars span{flex:1;height:15px;border-radius:2px;background:var(--track)}.bars span.lit{background:var(--comf)}
+  .ctl{display:flex;gap:4px;margin-top:9px;flex-wrap:wrap}
+  .ctl button{flex:1;min-width:28px;padding:5px 0;font-size:12px}
+  .ctl button.active{background:var(--comf);border-color:var(--comf);color:#06231b;font-weight:700}
 
   /* automations */
   .chat{background:var(--panel);border:1px solid var(--hair);border-radius:13px;padding:14px}
@@ -65,6 +72,20 @@
   .ractions{display:flex;gap:6px;margin-top:9px;flex-wrap:wrap}
   .empty{color:var(--muted);font-size:13px;padding:6px 2px}
   .foot{margin-top:22px;font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);text-align:center}
+
+  /* activity log */
+  .activity{background:var(--panel);border:1px solid var(--hair);border-radius:13px;max-height:340px;overflow-y:auto}
+  .aitem{display:flex;gap:10px;padding:9px 14px;border-bottom:1px solid var(--hair);font-size:12.5px}
+  .aitem:last-child{border-bottom:none}
+  .atype{font-family:ui-monospace,monospace;font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;
+    padding:2px 6px;border-radius:5px;white-space:nowrap;height:fit-content}
+  .atype.mode{background:var(--coolbg);color:var(--cool)}
+  .atype.rule{background:var(--comfbg);color:var(--comf)}
+  .atype.manual{background:color-mix(in srgb,var(--manual) 18%,transparent);color:var(--manual)}
+  .atype.outage,.atype.escalate{background:var(--warnbg);color:var(--warn)}
+  .atype.autotune{background:var(--ghbg);color:var(--gh)}
+  .amsg{flex:1}
+  .atime{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);white-space:nowrap}
 </style>
 </head>
 <body>
@@ -85,11 +106,23 @@
     <div class="read"><div class="k">Humidity</div><div class="v" id="rh">—</div><div class="t">relative</div></div>
     <div class="read"><div class="k">Feels like</div><div class="v" id="hi">—</div><div class="t" id="spread">heat index</div></div>
   </div>
+
   <div class="dev">
-    <div class="tile off" id="tC"><div class="tn">Cooler · GH</div><div class="ts" id="sC">—</div></div>
+    <div class="tile off" id="tC"><div class="tn">Cooler · GH</div><div class="ts" id="sC">—</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:9px">Voice / Google Home only</div></div>
+
     <div class="tile off" id="tF"><div class="tn">Fan</div><div class="ts" id="sF">—</div>
-      <div class="bars" id="fb"><span></span><span></span><span></span><span></span><span></span></div></div>
-    <div class="tile off" id="tH"><div class="tn">Heater</div><div class="ts" id="sH">—</div></div>
+      <div class="bars" id="fb"><span></span><span></span><span></span><span></span><span></span></div>
+      <div class="ctl" id="ctlF"></div></div>
+
+    <div class="tile off" id="tH"><div class="tn">Heater</div><div class="ts" id="sH">—</div>
+      <div class="ctl" id="ctlH"></div></div>
+
+    <div class="tile off" id="tL"><div class="tn">LED strip</div><div class="ts" id="sL">—</div>
+      <div class="ctl" id="ctlL"></div></div>
+
+    <div class="tile off" id="tP"><div class="tn">Projector</div><div class="ts" id="sP">—</div>
+      <div class="ctl" id="ctlP"></div></div>
   </div>
 
   <h2>Automations · talk to add one</h2>
@@ -104,13 +137,16 @@
 
   <div id="rules" style="margin-top:14px"></div>
 
+  <h2>Activity log</h2>
+  <div class="activity" id="activity"></div>
+
   <div class="foot" id="foot">—</div>
 </div>
 
 <script>
 const $=id=>document.getElementById(id);
 const clsFor=m=>m==='COLD'?'m-heat':m==='MUGGY'?'m-warn':/COOL$|COMFORT/.test(m)?'m-comf':'m-cool';
-const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const esc=s=>(s||'').replace(/[&<>]/g,c=>({'&':'&lt;','>':'&gt;','&':'&amp;'}[c]||c));
 
 async function poll(){
   try{ render(await (await fetch('/api/state')).json()); }
@@ -126,15 +162,43 @@ function render(s){
     $('modeName').textContent=d.mode; $('modeReason').textContent=d.reason;
     $('temp').textContent=r.temp.toFixed(1)+'°'; $('rh').textContent=Math.round(r.rh)+'%';
     $('hi').textContent=d.heat_index.toFixed(1)+'°'; $('spread').textContent='spread '+d.spread.toFixed(1)+'°';
-    tile('tC','sC',d.cooler,d.cooler?'ON':'OFF','on-cool');
-    tile('tH','sH',d.heater,d.heater?'ON':'OFF','on-heat');
-    tile('tF','sF',d.fan>0,d.fan>0?('SPD '+d.fan):'OFF','on-comf');
-    [...$('fb').children].forEach((b,i)=>b.classList.toggle('lit',i<d.fan));
+    tile('tC','sC',d.cooler,d.cooler?'ON':'OFF','on-cool',null);
   }
+  const dv=s.devices||{};
+  renderFan(dv.fan);
+  renderToggle('tH','sH','ctlH','heater',dv.heater,'on-heat');
+  renderToggle('tL','sL','ctlL','led',dv.led,'on-comf');
+  renderToggle('tP','sP','ctlP','projector',dv.projector,'on-cool');
+
   renderRules(s.rules||[], s.fired_rules||[]);
   $('foot').textContent=new Date().toLocaleTimeString()+(s.fired_rules?.length?'  ·  active: '+s.fired_rules.join(', '):'');
 }
-function tile(t,st,on,label,cls){$(t).className='tile '+(on?cls:'off');$(st).textContent=label;}
+function tile(t,st,on,label,cls,manualMin){
+  const el=$(t);
+  el.className='tile '+(on?cls:'off')+(manualMin?' manual':'');
+  $(st).textContent=label;
+  const badge=el.querySelector('.manual-badge');
+  if(manualMin){
+    if(!badge){ const b=document.createElement('div'); b.className='manual-badge'; el.appendChild(b); }
+    el.querySelector('.manual-badge').textContent='MANUAL '+Math.ceil(manualMin)+'m';
+  } else if(badge){ badge.remove(); }
+}
+function renderFan(f){
+  if(!f) return;
+  tile('tF','sF',f.value>0,f.value>0?('SPD '+f.value):'OFF','on-comf',f.manual_min_left);
+  [...$('fb').children].forEach((b,i)=>b.classList.toggle('lit',i<f.value));
+  $('ctlF').innerHTML=[0,1,2,3,4,5].map(v=>
+    `<button class="${f.value===v?'active':''}" onclick="setFan(${v})">${v===0?'Off':v}</button>`).join('');
+}
+function renderToggle(tileId,stateId,ctlId,device,d,cls){
+  if(!d) return;
+  tile(tileId,stateId,d.value,d.value?'ON':'OFF',cls,d.manual_min_left);
+  $(ctlId).innerHTML=`
+    <button class="${d.value?'':'active'}" onclick="setDevice('${device}',false)">Off</button>
+    <button class="${d.value?'active':''}" onclick="setDevice('${device}',true)">On</button>`;
+}
+async function setFan(v){ await fetch('/api/manual/fan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({speed:v})}); poll(); }
+async function setDevice(device,on){ await fetch(`/api/manual/${device}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({on})}); poll(); }
 
 function renderRules(rules, fired){
   if(!rules.length){ $('rules').innerHTML='<div class="empty">No automations yet. Describe one above.</div>'; return; }
@@ -187,8 +251,23 @@ async function delRule(id){ await fetch(`/api/rules/${id}`,{method:'DELETE'}); p
 async function runRule(id){ await fetch(`/api/rules/${id}/run`,{method:'POST'}); }
 function copyText(t){ navigator.clipboard.writeText(t); }
 
+async function pollActivity(){
+  try{
+    const {events}=await (await fetch('/api/activity?limit=60')).json();
+    if(!events.length){ $('activity').innerHTML='<div class="empty" style="padding:12px 14px">No activity yet.</div>'; return; }
+    $('activity').innerHTML=events.map(e=>`
+      <div class="aitem">
+        <span class="atype ${e.type}">${esc(e.type)}</span>
+        <span class="amsg">${esc(e.message)}</span>
+        <span class="atime">${new Date(e.ts*1000).toLocaleTimeString()}</span>
+      </div>`).join('');
+  }catch(e){}
+}
+
 $('chatbox').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)) send(); });
-poll(); setInterval(poll,5000);
+poll(); pollActivity();
+setInterval(poll,5000);
+setInterval(pollActivity,10000);
 </script>
 </body>
 </html>

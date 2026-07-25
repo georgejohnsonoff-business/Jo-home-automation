@@ -63,6 +63,19 @@ class TuyaCloud:
             log.error("status(%s) error: %s", device_id, e)
             return {}
 
+    def device_online(self, device_id: str) -> bool | None:
+        """True/False if reachable, None if we couldn't tell (cloud not ready etc)."""
+        if not self.ready:
+            return None
+        try:
+            r = self._api.get(f"/v1.0/devices/{device_id}")
+            if not r.get("success"):
+                return None
+            return bool(r["result"].get("online"))
+        except Exception as e:
+            log.error("device_online(%s) error: %s", device_id, e)
+            return None
+
     # -- writes -------------------------------------------------------------
     def commands(self, device_id: str, cmds: list[dict]) -> bool:
         """Send one or more {code, value} commands in a single call."""
