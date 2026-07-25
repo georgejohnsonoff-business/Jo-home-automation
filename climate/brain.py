@@ -45,6 +45,21 @@ def fan_tier(hi: float) -> int:
     return 5
 
 
+def heater_dial(t_c: float, thr: "Thresholds") -> int:
+    """
+    Heater thermostat-dial VALUE (15-32) to push, driven purely by OUR sensor
+    — never the heater's own internal thermostat (it sits next to its own
+    heat output and would under-read the room). Colder actual room -> higher
+    dial, i.e. more aggressive heat. Scales from 20 (mild, right at the
+    trigger point) up to 32 (max) as it gets 10° colder than the trigger.
+    """
+    if t_c >= thr.heater_on_t:
+        return 20
+    span = 10.0
+    frac = min(1.0, (thr.heater_on_t - t_c) / span)
+    return round(20 + frac * 12)   # 20 -> 32
+
+
 # ----------------------------------------------------------------------------
 # Decision
 # ----------------------------------------------------------------------------

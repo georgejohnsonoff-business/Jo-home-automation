@@ -18,9 +18,9 @@ from collections import deque
 from dataclasses import asdict
 from datetime import datetime, time as dtime
 
-from .brain import Decision, Thresholds, decide, dew_point, heat_index
+from .brain import Decision, Thresholds, decide, dew_point, heat_index, heater_dial
 from .cloud import TuyaCloud
-from .devices import Sensor, Fan, Heater, Projector, LED
+from .devices import Sensor, Fan, HandyHeater, Projector, LED
 from .learn import Learner, infer_cooler_state
 from .rules import RuleStore, run_actions, safe_eval
 from .store import Store
@@ -60,7 +60,7 @@ class Controller:
         d = cfg["devices"]
         self.sensor = Sensor(self.cloud, d["sensor"])
         self.fan = Fan(self.cloud, d["fan"])
-        self.heater = Heater(self.cloud, d["ir_hub"]["id"], d["heater"])
+        self.heater = HandyHeater(self.cloud, d["ir_hub"]["id"], d["heater"])
         self.projector = Projector(self.cloud, d["ir_hub"]["id"], d["projector"])
         self.led = LED(self.cloud, d["ir_hub"]["id"], d["led"]["remote_id"], "", "")
 
@@ -105,6 +105,13 @@ class Controller:
 
     def _persist_desired(self):
         self.db.kv_set(DESIRED_KEY, json.dumps(self.desired))
+
+    def _heater_dial_now(self) -> int:
+        """Intensity to push the heater's dial RIGHT NOW, from OUR sensor —
+        never the heater's own thermostat. Falls back to a mild default if
+        we have no reading yet."""
+        t_c = self.reading[0] if self.reading else self.thr.heater_on_t
+        return heater_dial(t_c, self.thr)
 
     def ir_scene(self, device: str, command: str):
         """Callback used by rules.py's run_actions() for led/projector actions."""
@@ -159,7 +166,7 @@ class Controller:
             self.desired["fan"] = speed or 0
             self.manual["fan"] = {"value": speed or 0, "expires": expires}
         elif device == "heater":
-            self.heater.set(bool(on))
+            self.heater.set(bool(on), temp=self._heater_dial_now() if on else None, fan="HIGH")
             self.desired["heater"] = bool(on)
             self.manual["heater"] = {"value": bool(on), "expires": expires}
         elif device == "led":
@@ -210,8 +217,10 @@ class Controller:
                           {"desired": self.desired})
         self.alerts.append("Power restored — resyncing devices to prior state.")
 
-        self.heater.force_state(False)
-        self.heater.set(self.desired["heater"])
+        self.heater.force_state(on=False)
+        self.heater.set(self.desired["heater"],
+                        temp=self._heater_dial_now() if self.desired["heater"] else None,
+                        fan="HIGH")
 
         self.projector.force_state(False)
         self.projector.set(self.desired["projector"])
@@ -267,7 +276,8 @@ class Controller:
             self.fan.set_speed(target.fan)
             self.desired["fan"] = target.fan
         if not self._override_active("heater"):
-            self.heater.set(target.heater)
+            self.heater.set(target.heater, temp=heater_dial(t_c, self.thr) if target.heater else None,
+                            fan="HIGH")
             self.desired["heater"] = target.heater
         self._persist_desired()
         self.decision = target

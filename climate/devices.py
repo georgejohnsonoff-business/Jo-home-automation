@@ -7,6 +7,7 @@ all work for development without hardware.
 """
 from __future__ import annotations
 import logging
+import time
 
 from .cloud import TuyaCloud
 
@@ -95,12 +96,101 @@ class ToggleIR:
         self._on = on
 
 
-class Heater(ToggleIR):
-    def __init__(self, cloud: TuyaCloud, ir_hub_id: str, cfg: dict):
-        # Heater's config historically carries code_on/code_off, both equal
-        # (it's a toggle) — accept either key name.
-        code = cfg.get("code_on") or cfg.get("code_power", "")
-        super().__init__(cloud, ir_hub_id, cfg["remote_id"], code, assumed_initial=False)
+class HandyHeater:
+    """
+    Kanupriya handy heater — NOT a simple toggle. Confirmed remote behavior:
+      power — single toggle pulse. Powering ON resets the unit's OWN state to
+              temp=25C, fan=HIGH, timer=0(off) — a hardware default we must
+              resync our tracking to, not something we choose.
+      temp  — a real thermostat dial, 15-32C, one pulse per degree via
+              increase/decrease. We treat it purely as an INTENSITY KNOB
+              driven every tick by OUR WiFi sensor (brain.heater_dial()) —
+              the heater's own thermostat/sensor is never trusted, since it
+              sits right next to its own heat output and would under-read
+              the room. Reaching a target means pressing the delta in steps.
+      fan   — strict 2-state cycle HIGH<->LOW. Any single press flips it.
+      timer — 13-state cycle 0(off)..12h, one-directional (no decrease code).
+              Not driven by automation (our own loop already decides on/off
+              every 30s) — wired in for a possible future manual control.
+    """
+    TEMP_MIN, TEMP_MAX = 15, 32
+    RESET_TEMP = 25
+    RESET_FAN = "HIGH"
+
+    def __init__(self, cloud: TuyaCloud, ir_hub_id: str, cfg: dict, pulse_delay: float = 0.35):
+        self.cloud = cloud
+        self.ir = ir_hub_id
+        self.remote = cfg["remote_id"]
+        self.codes = {
+            "power": cfg.get("code_power") or cfg.get("code_on", ""),
+            "increase": cfg.get("code_increase", ""),
+            "decrease": cfg.get("code_decrease", ""),
+            "fan": cfg.get("code_fan", ""),
+            "timer": cfg.get("code_timer", ""),
+        }
+        self.pulse_delay = pulse_delay
+        self._on = False
+        self._temp = self.RESET_TEMP
+        self._fan = self.RESET_FAN
+        self._timer = 0
+
+    def _press(self, key: str, times: int = 1):
+        code = self.codes.get(key)
+        if not code:
+            log.warning("Heater code '%s' not set — skipping", key)
+            return
+        for i in range(times):
+            self.cloud.ir_send_learned(self.ir, self.remote, code)
+            if i < times - 1:
+                time.sleep(self.pulse_delay)
+
+    def set(self, on: bool, temp: int | None = None, fan: str | None = None):
+        if on and not self._on:
+            self._press("power")
+            self._on = True
+            # hardware resets itself to these on power-on — resync, don't guess
+            self._temp = self.RESET_TEMP
+            self._fan = self.RESET_FAN
+            self._timer = 0
+        elif not on and self._on:
+            self._press("power")
+            self._on = False
+            return
+
+        if not self._on:
+            return
+
+        if temp is not None:
+            target = max(self.TEMP_MIN, min(self.TEMP_MAX, round(temp)))
+            delta = target - self._temp
+            if delta > 0:
+                self._press("increase", delta)
+            elif delta < 0:
+                self._press("decrease", -delta)
+            self._temp = target
+
+        if fan is not None and fan != self._fan:
+            self._press("fan")   # strict 2-state cycle — one press always flips it
+            self._fan = fan
+
+    def set_timer(self, hours: int):
+        if not self._on:
+            return
+        target = max(0, min(12, hours))
+        presses = (target - self._timer) % 13   # one-directional cycle, mod handles wrap
+        if presses:
+            self._press("timer", presses)
+        self._timer = target
+
+    def force_state(self, on: bool = False, temp: int | None = None,
+                    fan: str | None = None, timer: int | None = None):
+        """Assert tracked state WITHOUT sending commands — use when we know
+        the physical unit already reset (e.g. after a power outage, it comes
+        back OFF, per confirmed behavior)."""
+        self._on = on
+        self._temp = temp if temp is not None else self.RESET_TEMP
+        self._fan = fan if fan is not None else self.RESET_FAN
+        self._timer = timer if timer is not None else 0
 
 
 class Projector(ToggleIR):
