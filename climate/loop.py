@@ -84,6 +84,20 @@ class Controller:
         self.desired.setdefault("heater", False)
         self.desired.setdefault("led", False)
         self.desired.setdefault("projector", False)
+        self.desired.setdefault("led_color", None)
+
+        # Toggle-based devices (heater/projector) default their tracked state
+        # to False on construction — that's only correct for a fresh install.
+        # On every OTHER startup, assume the physical device is still wherever
+        # we last left it (no power/connectivity event happened, just our
+        # process restarting) and sync tracked state to match `desired`,
+        # rather than assuming False and risking a misfired toggle on the
+        # next command (confirmed by a real test: restarting the app while
+        # the projector was genuinely on, then sending "on" again, turned it
+        # OFF — exactly this desync).
+        self.heater.force_state(on=self.desired["heater"])
+        self.projector.force_state(self.desired["projector"])
+        self.led.force_state(self.desired["led"])
 
         # -- manual dashboard overrides: {device: {"value":..., "expires": monotonic}}
         self.manual: dict[str, dict] = {}
@@ -240,6 +254,12 @@ class Controller:
         self.projector.set(self.desired["projector"])
 
         self.led.set(self.desired["led"], force=True)
+        # "on" alone doesn't stop the flash-demo boot mode — the LED strip
+        # apparently already considers itself "on" during that animation.
+        # A specific COLOR command is what actually breaks it out of flashing
+        # and holds a steady state — confirmed by a real outage test.
+        if self.desired["led"] and self.desired.get("led_color"):
+            self.led.set_color(self.desired["led_color"])
 
         self.fan.force_resend()
         self.fan.set_speed(self.desired["fan"])
